@@ -1,6 +1,14 @@
 # tensack addendum: functional interface, chat rows, and hidden lookup mechanics
 
+status: background reference. current decisions live in `TENSACK_BOOK.md` and
+the focused `TENSACK_*_SPEC.md` files.
+
 this document is an addendum to the existing `tensack` rust backend architecture. it does not restate the base design. it only adds or changes the parts that matter after tightening the direction:
+
+chunk layout note: old examples in this addendum that mention `active.ten` or
+`0000.ten` are superseded by `tensack_chunk_naming_spec.md`. current table
+chunks use reverse lowercase base-36 paths such as `zz/zzz.ten` and
+`zz/zzy.ten`.
 
 ```txt
 normal logical tables

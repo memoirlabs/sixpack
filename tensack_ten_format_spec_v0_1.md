@@ -1,5 +1,9 @@
 # Tensack `.ten` Format Specification
 
+**Status:** draft background reference. Current file/storage decisions live in
+`TENSACK_STORAGE_SPEC.md`; current product/backend decisions live in
+`TENSACK_BOOK.md`.
+
 **Document version:** Draft v0.1  
 **Format name:** TEN - Tensack Entity Notation  
 **Primary file extensions:** `.ten`, `.tenb`, `.tenx`  

@@ -1,12 +1,13 @@
 # Schema Compiler (Rust)
 
 `packages/tensack-schema-compiler` is the build-time schema compiler crate.
+The current schema direction is summarized in [TENSACK_SCHEMA_SPEC.md](TENSACK_SCHEMA_SPEC.md).
 
 It currently does three things:
 
 - parses the `schema! { ... }` style surface used in our examples,
 - validates IDs, duplicates, and lookup references,
-- emits a compact raw Rust row/module fragment for generated paths.
+- emits compact raw Rust row modules plus table-handle APIs for generated paths.
 
 ## Current shape
 
@@ -75,12 +76,13 @@ schema.tensack
   -> compile_schema(source)
   -> validated SchemaIr
   -> emit_raw_rust(ir)
-  -> generated Rust modules/row structs/API helpers
+  -> generated Rust modules/row structs/table handles
   -> app imports generated Rust, runtime does not parse schema text
 ```
 
 The current generated output is deliberately small. It proves the important
-part first: every schema field resolves to the canonical Rust primitive mapping:
+parts first: every schema field resolves to the canonical Rust primitive mapping
+and generated table handles build the internal plan envelope:
 
 ```txt
 id    -> String
@@ -88,6 +90,16 @@ text  -> String
 int   -> i64
 float -> f64
 bool  -> bool
+```
+
+```rust
+use tensack_generated_schema::TensackGeneratedTables;
+
+db.messages().insert(row)?;
+db.messages().get().id("m1")?;
+db.messages().find().conversation_id("cv1")?;
+db.messages().scan().limit(100).run()?;
+db.messages().count()?;
 ```
 
 Run the working example with:

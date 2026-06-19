@@ -54,10 +54,19 @@ currently implemented.
 
 ## Canonical references for present scope
 
-- `README.md` and `docs/project-specs.md` for current structure.
-- `tensack_rust_backend_architecture.md` and `tensack_functional_addendum.md` for final direction.
-- `docs/commands.md`, `docs/file-format.md`, `DATABASE_TESTING.md` for current contract language and test strategy.
-- `SCHEMA_COMPILER.md` for schema compilation behavior.
+- `TENSACK_BOOK.md` for current product/backend decisions.
+- `TENSACK_SCHEMA_SPEC.md`, `TENSACK_API_SPEC.md`, `TENSACK_PLAN_SPEC.md`,
+  `TENSACK_STORAGE_SPEC.md`, and `TENSACK_IMPLEMENTATION_STATUS.md` for focused
+  specs.
+- `README.md` and `docs/project-specs.md` for current structure and doc map.
+- `docs/commands.md`, `docs/file-format.md`, `DATABASE_TESTING.md` for supporting
+  contract language and test strategy.
+- `SCHEMA_COMPILER.md` for current schema compiler behavior.
+
+Older long-form docs such as `tensack_rust_backend_architecture.md` and
+`tensack_functional_addendum.md` are background references. If they conflict
+with `TENSACK_BOOK.md` or the focused `TENSACK_*_SPEC.md` files, the newer book
+and focused specs win.
 
 ## Core constraints (do not violate without instruction)
 

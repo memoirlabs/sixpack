@@ -16,6 +16,7 @@ The database is composed in `packages/tensack`. CLI behavior lives in `packages/
 - `packages/tensack-schema-compiler` - schema parser + validator + raw Rust IR/codegen output for `schema!` files.
 - `packages/tensack-testkit` - shared test harnesses, builders, and assertions for workspace tests.
 - `apps/tensack` - runnable Tensack app. Its current interface is a command-line binary named `tensack`.
+- `apps/landing-page` - static documentation app for the current backend map and storage layout.
 - `apps/admin-ui` - placeholder for the local database viewer (future user-facing surface).
 - `apps/test-lab` - broader experimental workspace for non-shipped tests, speed/sync checks, fixtures, and UI mockups.
 - `benchmark` - benchmark definitions and implementation comparisons.
@@ -23,19 +24,38 @@ The database is composed in `packages/tensack`. CLI behavior lives in `packages/
 - `tests/snapshots` - reviewed output snapshots for command and format surfaces.
 - `docs` - user-facing format and command documentation.
 - `user-scripts` - local installation scripts.
-- [project spec/doc map](docs/project-specs.md) - public spec and implementation reference documents gathered in one place.
+- [TENSACK_BOOK.md](TENSACK_BOOK.md) - compact source of truth for product/backend decisions.
+- [project spec/doc map](docs/project-specs.md) - supporting spec and implementation references.
 
 ## Status
 
 The workspace now includes a minimal writable data path: schema-validated rows
 are encoded into per-table `.ten` row segments, with a root `tensack.toml`
-physical layout map and generated `.tenb` caches for id and declared lookup
-reads. `.tenx` is reserved for optional full-text search and is not required for
-normal reads.
+physical layout map and generated binary `.tenb` caches for id lookups,
+declared lookup reads, scans, and counts. `.tenx` is reserved for optional
+full-text search and is not required for normal reads.
 
 The current product target is intentionally plain: a tiny local table database
 with CRUD, typed primitive fields, and rebuildable lookup caches. No SQL, no
 chat-specific primary surface, no external database.
+
+The target public API is table-first and generated from schema:
+
+```txt
+db.<table>.insert()
+db.<table>.upsert()
+db.<table>.patch()
+db.<table>.remove()
+
+db.<table>.get.<unique_lookup>()
+db.<table>.find.<lookup>()
+db.<table>.scan()
+db.<table>.count()
+```
+
+Generated Rust table handles now build the internal plan envelope described in
+[TENSACK_PLAN_SPEC.md](TENSACK_PLAN_SPEC.md). CLI commands and admin UI actions
+should use that same executor as their surfaces expand.
 
 ### Minimal CRUD example
 

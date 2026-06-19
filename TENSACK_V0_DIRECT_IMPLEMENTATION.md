@@ -1,3 +1,7 @@
+Status: background implementation sketch. Current decisions live in
+`TENSACK_BOOK.md` and the focused `TENSACK_*_SPEC.md` files. Examples in this
+file that mention JSONL/current.jsonl are not the current storage target.
+
 Below is the more direct implementation version.
 
 The smallest serious design is:

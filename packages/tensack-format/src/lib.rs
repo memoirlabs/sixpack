@@ -18,6 +18,7 @@ pub const FORMAT_VERSION: u32 = 1;
 pub const TEN_MAGIC: &str = "TEN";
 pub const TEN_PROFILE_TABLE: &str = "table";
 pub const TENB_MAGIC: &str = "TENB";
+pub const TENB_BINARY_VERSION: u32 = 2;
 pub const TENX_MAGIC: &str = "TENX";
 
 /// Internal operation type in the JSONL append log.
@@ -353,36 +354,77 @@ pub fn source_hash(bytes: &[u8]) -> String {
 }
 
 pub fn encode_tenb_cache(cache: &TenbCache) -> Vec<u8> {
-    let mut out = String::new();
-    out.push_str(&format!(
-        "{TENB_MAGIC}\t{}\t{}\t{}\t{}\n",
-        cache.version,
-        escape_ten_value(&cache.table),
-        escape_ten_value(&cache.schema_hash),
-        escape_ten_value(&cache.source_hash)
-    ));
+    let mut out = Vec::new();
+    out.extend_from_slice(b"TENB\0");
+    write_u32(&mut out, TENB_BINARY_VERSION);
+    write_string(&mut out, &cache.table);
+    write_string(&mut out, &cache.schema_hash);
+    write_string(&mut out, &cache.source_hash);
+    write_u32(&mut out, cache.rows.len() as u32);
     for row in &cache.rows {
-        out.push_str(&format!(
-            "row\t{}\t{}\t{}\t{}\t{}\n",
-            escape_ten_value(&row.id),
-            escape_ten_value(&row.ptr.chunk_name),
-            row.ptr.offset,
-            row.ptr.len,
-            row.ptr.tx_id
-        ));
+        write_string(&mut out, &row.id);
+        write_string(&mut out, &row.ptr.chunk_name);
+        write_u64(&mut out, row.ptr.offset);
+        write_u32(&mut out, row.ptr.len);
+        write_u64(&mut out, row.ptr.tx_id);
     }
+    write_u32(&mut out, cache.lookups.len() as u32);
     for lookup in &cache.lookups {
-        out.push_str(&format!(
-            "lookup\t{}\t{}\t{}\n",
-            escape_ten_value(&lookup.field_name),
-            escape_ten_value(&lookup.key),
-            escape_ten_value(&lookup.id)
-        ));
+        write_string(&mut out, &lookup.field_name);
+        write_string(&mut out, &lookup.key);
+        write_string(&mut out, &lookup.id);
     }
-    out.into_bytes()
+    out
 }
 
 pub fn decode_tenb_cache(bytes: &[u8]) -> Result<TenbCache, FormatError> {
+    if bytes.starts_with(b"TENB\0") {
+        return decode_tenb_cache_binary(bytes);
+    }
+    decode_tenb_cache_text(bytes)
+}
+
+fn decode_tenb_cache_binary(bytes: &[u8]) -> Result<TenbCache, FormatError> {
+    let mut reader = BinaryReader::new(bytes);
+    reader.expect_magic(b"TENB\0")?;
+    let version = reader.read_u32()?;
+    let table = reader.read_string()?;
+    let schema_hash = reader.read_string()?;
+    let source_hash = reader.read_string()?;
+    let row_count = reader.read_u32()? as usize;
+    let mut rows = Vec::with_capacity(row_count);
+    for _ in 0..row_count {
+        rows.push(TenbRowEntry {
+            id: reader.read_string()?,
+            ptr: RowPointer {
+                chunk_name: reader.read_string()?,
+                offset: reader.read_u64()?,
+                len: reader.read_u32()?,
+                tx_id: reader.read_u64()?,
+            },
+        });
+    }
+    let lookup_count = reader.read_u32()? as usize;
+    let mut lookups = Vec::with_capacity(lookup_count);
+    for _ in 0..lookup_count {
+        lookups.push(TenbLookupEntry {
+            field_name: reader.read_string()?,
+            key: reader.read_string()?,
+            id: reader.read_string()?,
+        });
+    }
+    reader.expect_eof()?;
+    Ok(TenbCache {
+        version,
+        table,
+        schema_hash,
+        source_hash,
+        rows,
+        lookups,
+    })
+}
+
+fn decode_tenb_cache_text(bytes: &[u8]) -> Result<TenbCache, FormatError> {
     let text = std::str::from_utf8(bytes)
         .map_err(|error| FormatError::BadTenb(format!("invalid utf-8: {error}")))?;
     let mut lines = text.lines();
@@ -440,6 +482,81 @@ pub fn decode_tenb_cache(bytes: &[u8]) -> Result<TenbCache, FormatError> {
     }
 
     Ok(cache)
+}
+
+struct BinaryReader<'a> {
+    bytes: &'a [u8],
+    offset: usize,
+}
+
+impl<'a> BinaryReader<'a> {
+    fn new(bytes: &'a [u8]) -> Self {
+        Self { bytes, offset: 0 }
+    }
+
+    fn expect_magic(&mut self, magic: &[u8]) -> Result<(), FormatError> {
+        let actual = self.take(magic.len())?;
+        if actual == magic {
+            Ok(())
+        } else {
+            Err(FormatError::BadTenb("bad TENB binary magic".to_owned()))
+        }
+    }
+
+    fn read_u32(&mut self) -> Result<u32, FormatError> {
+        let bytes = self.take(4)?;
+        Ok(u32::from_le_bytes(
+            bytes.try_into().expect("take returned exact u32 width"),
+        ))
+    }
+
+    fn read_u64(&mut self) -> Result<u64, FormatError> {
+        let bytes = self.take(8)?;
+        Ok(u64::from_le_bytes(
+            bytes.try_into().expect("take returned exact u64 width"),
+        ))
+    }
+
+    fn read_string(&mut self) -> Result<String, FormatError> {
+        let len = self.read_u32()? as usize;
+        let bytes = self.take(len)?;
+        String::from_utf8(bytes.to_vec())
+            .map_err(|error| FormatError::BadTenb(format!("invalid utf-8 string: {error}")))
+    }
+
+    fn expect_eof(&self) -> Result<(), FormatError> {
+        if self.offset == self.bytes.len() {
+            Ok(())
+        } else {
+            Err(FormatError::BadTenb("trailing TENB bytes".to_owned()))
+        }
+    }
+
+    fn take(&mut self, len: usize) -> Result<&'a [u8], FormatError> {
+        let end = self
+            .offset
+            .checked_add(len)
+            .ok_or_else(|| FormatError::BadTenb("TENB offset overflow".to_owned()))?;
+        if end > self.bytes.len() {
+            return Err(FormatError::BadTenb("truncated TENB binary".to_owned()));
+        }
+        let out = &self.bytes[self.offset..end];
+        self.offset = end;
+        Ok(out)
+    }
+}
+
+fn write_u32(out: &mut Vec<u8>, value: u32) {
+    out.extend_from_slice(&value.to_le_bytes());
+}
+
+fn write_u64(out: &mut Vec<u8>, value: u64) {
+    out.extend_from_slice(&value.to_le_bytes());
+}
+
+fn write_string(out: &mut Vec<u8>, value: &str) {
+    write_u32(out, value.len() as u32);
+    out.extend_from_slice(value.as_bytes());
 }
 
 /// Escapes one `.ten` field value.
@@ -600,5 +717,48 @@ mod tests {
         assert_eq!(encoded, "m1\thello\\tworld\\nagain\t42");
         let decoded = decode_ten_row(&table, &encoded).unwrap();
         assert_eq!(decoded.fields(), record.fields());
+    }
+
+    #[test]
+    fn tenb_binary_round_trip() {
+        let cache = TenbCache {
+            version: TENB_BINARY_VERSION,
+            table: "messages".to_owned(),
+            schema_hash: "schema".to_owned(),
+            source_hash: "source".to_owned(),
+            rows: vec![TenbRowEntry {
+                id: "m1".to_owned(),
+                ptr: RowPointer {
+                    chunk_name: "zz/zzz.ten".to_owned(),
+                    offset: 42,
+                    len: 18,
+                    tx_id: 7,
+                },
+            }],
+            lookups: vec![TenbLookupEntry {
+                field_name: "conversation_id".to_owned(),
+                key: "cv1".to_owned(),
+                id: "m1".to_owned(),
+            }],
+        };
+
+        let encoded = encode_tenb_cache(&cache);
+        assert!(encoded.starts_with(b"TENB\0"));
+        assert_eq!(
+            u32::from_le_bytes(encoded[5..9].try_into().unwrap()),
+            TENB_BINARY_VERSION
+        );
+        let decoded = decode_tenb_cache(&encoded).unwrap();
+        assert_eq!(decoded, cache);
+    }
+
+    #[test]
+    fn legacy_text_tenb_still_decodes() {
+        let legacy = b"TENB\t1\tmessages\tschema\tsource\nrow\tm1\tzz/zzz.ten\t42\t18\t7\nlookup\tconversation_id\tcv1\tm1\n";
+        let decoded = decode_tenb_cache(legacy).unwrap();
+        assert_eq!(decoded.version, 1);
+        assert_eq!(decoded.table, "messages");
+        assert_eq!(decoded.rows.len(), 1);
+        assert_eq!(decoded.lookups.len(), 1);
     }
 }

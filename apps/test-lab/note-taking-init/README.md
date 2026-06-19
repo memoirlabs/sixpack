@@ -45,11 +45,14 @@ notes-db/
     tags.tenb
   tables/
     notebooks/
-      active.ten
+      zz/
+        zzz.ten
     notes/
-      active.ten
+      zz/
+        zzz.ten
     tags/
-      active.ten
+      zz/
+        zzz.ten
 ```
 
 The latest schema has three tables:

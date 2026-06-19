@@ -242,6 +242,27 @@ pub fn emit_raw_rust(ir: &SchemaIr) -> String {
         "    pub const SCHEMA_HASH: &str = \"{}\";\n\n",
         ir.schema_hash()
     ));
+    out.push_str("    pub trait TensackGeneratedTables {\n");
+    for table in &ir.tables {
+        out.push_str(&format!(
+            "        fn {}(&self) -> {}::TableHandle<'_>;\n",
+            table.name, table.name
+        ));
+    }
+    out.push_str("    }\n\n");
+    out.push_str("    impl TensackGeneratedTables for tensack::TensackDatabase {\n");
+    for table in &ir.tables {
+        out.push_str(&format!(
+            "        fn {}(&self) -> {}::TableHandle<'_> {{\n",
+            table.name, table.name
+        ));
+        out.push_str(&format!(
+            "            {}::TableHandle::new(self)\n",
+            table.name
+        ));
+        out.push_str("        }\n");
+    }
+    out.push_str("    }\n\n");
 
     for table in &ir.tables {
         out.push_str(&format!("    pub mod {} {{\n", table.name));
@@ -312,59 +333,196 @@ pub fn emit_raw_rust(ir: &SchemaIr) -> String {
         }
         out.push_str("            table\n");
         out.push_str("        }\n");
+
+        out.push_str("\n        #[derive(Debug, Clone, PartialEq)]\n");
+        out.push_str("        pub struct Patch {\n");
         out.push_str(
-            "\n        pub fn insert(db: &tensack::TensackDatabase, row: Row) -> Result<tensack::AppendResult, tensack::TensackError> {\n",
+            "            fields: ::std::collections::BTreeMap<String, tensack::SackValue>,\n",
         );
-        out.push_str("            let record = row.into_record()?;\n");
-        out.push_str("            db.insert(&record)\n");
-        out.push_str("        }\n");
-        out.push_str(
-            "\n        pub fn put(db: &tensack::TensackDatabase, row: Row) -> Result<tensack::AppendResult, tensack::TensackError> {\n",
-        );
-        out.push_str("            let record = row.into_record()?;\n");
-        out.push_str("            db.put(&record)\n");
-        out.push_str("        }\n");
-        out.push_str(
-            "\n        pub fn get(db: &tensack::TensackDatabase, id: &str) -> Result<Option<Row>, tensack::TensackError> {\n",
-        );
-        out.push_str("            match db.get(NAME, id)? {\n");
-        out.push_str("                Some(record) => Ok(Some(Row::from_record(&record)?)),\n");
-        out.push_str("                None => Ok(None),\n");
+        out.push_str("        }\n\n");
+        out.push_str("        impl Patch {\n");
+        out.push_str("            pub fn new() -> Self {\n");
+        out.push_str("                Self { fields: ::std::collections::BTreeMap::new() }\n");
+        out.push_str("            }\n");
+        for field in &table.fields {
+            if field.name == "id" {
+                continue;
+            }
+            out.push_str(&format!(
+                "\n            pub fn {}(mut self, value: {}) -> Self {{\n",
+                field.name,
+                rust_param_type(field)
+            ));
+            out.push_str(&format!(
+                "                self.fields.insert(\"{}\".to_owned(), {});\n",
+                field.name,
+                rust_sack_value_expr(field, "value")
+            ));
+            out.push_str("                self\n");
+            out.push_str("            }\n");
+        }
+        out.push_str("        }\n\n");
+        out.push_str("        impl Default for Patch {\n");
+        out.push_str("            fn default() -> Self {\n");
+        out.push_str("                Self::new()\n");
         out.push_str("            }\n");
         out.push_str("        }\n");
+
+        out.push_str("\n        pub mod key {\n");
+        out.push_str("            #[derive(Debug, Clone, PartialEq)]\n");
+        out.push_str("            pub struct Key {\n");
+        out.push_str("                pub lookup: &'static str,\n");
+        out.push_str("                pub value: tensack::SackValue,\n");
+        out.push_str("            }\n\n");
+        let id_field = table
+            .fields
+            .iter()
+            .find(|field| field.name == "id")
+            .expect("validated schema has id");
+        emit_key_constructor(&mut out, id_field, true);
         for lookup in &table.lookups {
-            if lookup.unique {
-                out.push_str(&format!(
-                    "\n        pub fn get_by_{}(db: &tensack::TensackDatabase, key: &str) -> Result<Option<Row>, tensack::TensackError> {{\n",
-                    lookup.field_name
-                ));
-                out.push_str(&format!(
-                    "            match db.get_by(NAME, \"{}\", key)? {{\n",
-                    lookup.field_name
-                ));
-                out.push_str(
-                    "                Some(record) => Ok(Some(Row::from_record(&record)?)),\n",
-                );
-                out.push_str("                None => Ok(None),\n");
-                out.push_str("            }\n");
-                out.push_str("        }\n");
-            } else {
-                out.push_str(&format!(
-                    "\n        pub fn get_many_by_{}(db: &tensack::TensackDatabase, key: &str) -> Result<Vec<Row>, tensack::TensackError> {{\n",
-                    lookup.field_name
-                ));
-                out.push_str(&format!(
-                    "            let records = db.get_many_by(NAME, \"{}\", key)?;\n",
-                    lookup.field_name
-                ));
-                out.push_str("            let mut rows = Vec::with_capacity(records.len());\n");
-                out.push_str("            for record in records {\n");
-                out.push_str("                rows.push(Row::from_record(&record)?);\n");
-                out.push_str("            }\n");
-                out.push_str("            Ok(rows)\n");
-                out.push_str("        }\n");
+            if lookup.unique
+                && let Some(field) = table
+                    .fields
+                    .iter()
+                    .find(|field| field.name == lookup.field_name)
+            {
+                emit_key_constructor(&mut out, field, false);
             }
         }
+        out.push_str("        }\n");
+
+        out.push_str("\n        pub struct TableHandle<'a> {\n");
+        out.push_str("            db: &'a tensack::TensackDatabase,\n");
+        out.push_str("        }\n\n");
+        out.push_str("        impl<'a> TableHandle<'a> {\n");
+        out.push_str("            pub fn new(db: &'a tensack::TensackDatabase) -> Self {\n");
+        out.push_str("                Self { db }\n");
+        out.push_str("            }\n\n");
+        out.push_str("            pub fn insert(&self, row: Row) -> Result<tensack::AppendResult, tensack::TensackError> {\n");
+        out.push_str("                let record = row.into_record()?;\n");
+        out.push_str("                match self.db.execute_plan(tensack::PlanEnvelope::new(tensack::PlanOp::Insert, NAME).with_record_value(record))? {\n");
+        out.push_str("                    tensack::PlanOutcome::Append(result) => Ok(result),\n");
+        out.push_str(
+            "                    _ => unreachable!(\"insert plans return append results\"),\n",
+        );
+        out.push_str("                }\n");
+        out.push_str("            }\n\n");
+        out.push_str("            pub fn upsert(&self, row: Row) -> Result<tensack::AppendResult, tensack::TensackError> {\n");
+        out.push_str("                let record = row.into_record()?;\n");
+        out.push_str("                match self.db.execute_plan(tensack::PlanEnvelope::new(tensack::PlanOp::Upsert, NAME).with_record_value(record))? {\n");
+        out.push_str("                    tensack::PlanOutcome::Append(result) => Ok(result),\n");
+        out.push_str(
+            "                    _ => unreachable!(\"upsert plans return append results\"),\n",
+        );
+        out.push_str("                }\n");
+        out.push_str("            }\n\n");
+        out.push_str("            pub fn put(&self, row: Row) -> Result<tensack::AppendResult, tensack::TensackError> {\n");
+        out.push_str("                self.upsert(row)\n");
+        out.push_str("            }\n\n");
+        out.push_str("            pub fn patch(&self, target: key::Key, patch: Patch) -> Result<tensack::AppendResult, tensack::TensackError> {\n");
+        out.push_str("                let mut plan = tensack::PlanEnvelope::new(tensack::PlanOp::Patch, NAME).with_lookup(target.lookup);\n");
+        out.push_str("                plan.key.insert(target.lookup.to_owned(), target.value);\n");
+        out.push_str("                plan.value = patch.fields;\n");
+        out.push_str("                match self.db.execute_plan(plan)? {\n");
+        out.push_str("                    tensack::PlanOutcome::Append(result) => Ok(result),\n");
+        out.push_str(
+            "                    _ => unreachable!(\"patch plans return append results\"),\n",
+        );
+        out.push_str("                }\n");
+        out.push_str("            }\n\n");
+        out.push_str("            pub fn remove(&self, target: key::Key) -> Result<tensack::AppendResult, tensack::TensackError> {\n");
+        out.push_str("                let mut plan = tensack::PlanEnvelope::new(tensack::PlanOp::Remove, NAME).with_lookup(target.lookup);\n");
+        out.push_str("                plan.key.insert(target.lookup.to_owned(), target.value);\n");
+        out.push_str("                match self.db.execute_plan(plan)? {\n");
+        out.push_str("                    tensack::PlanOutcome::Append(result) => Ok(result),\n");
+        out.push_str(
+            "                    _ => unreachable!(\"remove plans return append results\"),\n",
+        );
+        out.push_str("                }\n");
+        out.push_str("            }\n\n");
+        out.push_str("            pub fn get(&self) -> GetHandle<'a> {\n");
+        out.push_str("                GetHandle { db: self.db }\n");
+        out.push_str("            }\n\n");
+        out.push_str("            pub fn find(&self) -> FindHandle<'a> {\n");
+        out.push_str("                FindHandle { db: self.db }\n");
+        out.push_str("            }\n\n");
+        out.push_str("            pub fn scan(&self) -> ScanBuilder<'a> {\n");
+        out.push_str("                ScanBuilder { db: self.db, limit: None, cursor: None }\n");
+        out.push_str("            }\n\n");
+        out.push_str("            pub fn count(&self) -> Result<usize, tensack::TensackError> {\n");
+        out.push_str("                match self.db.execute_plan(tensack::PlanEnvelope::new(tensack::PlanOp::Count, NAME))? {\n");
+        out.push_str("                    tensack::PlanOutcome::Count(count) => Ok(count),\n");
+        out.push_str("                    _ => unreachable!(\"count plans return counts\"),\n");
+        out.push_str("                }\n");
+        out.push_str("            }\n");
+        out.push_str("        }\n");
+
+        out.push_str("\n        pub struct GetHandle<'a> {\n");
+        out.push_str("            db: &'a tensack::TensackDatabase,\n");
+        out.push_str("        }\n\n");
+        out.push_str("        impl<'a> GetHandle<'a> {\n");
+        emit_get_method(&mut out, id_field, true);
+        for lookup in &table.lookups {
+            if lookup.unique
+                && let Some(field) = table
+                    .fields
+                    .iter()
+                    .find(|field| field.name == lookup.field_name)
+            {
+                emit_get_method(&mut out, field, false);
+            }
+        }
+        out.push_str("        }\n");
+
+        out.push_str("\n        pub struct FindHandle<'a> {\n");
+        out.push_str("            db: &'a tensack::TensackDatabase,\n");
+        out.push_str("        }\n\n");
+        out.push_str("        impl<'a> FindHandle<'a> {\n");
+        for lookup in &table.lookups {
+            if let Some(field) = table
+                .fields
+                .iter()
+                .find(|field| field.name == lookup.field_name)
+            {
+                emit_find_method(&mut out, field);
+            }
+        }
+        out.push_str("        }\n");
+
+        out.push_str("\n        pub struct ScanBuilder<'a> {\n");
+        out.push_str("            db: &'a tensack::TensackDatabase,\n");
+        out.push_str("            limit: Option<usize>,\n");
+        out.push_str("            cursor: Option<String>,\n");
+        out.push_str("        }\n\n");
+        out.push_str("        impl<'a> ScanBuilder<'a> {\n");
+        out.push_str("            pub fn limit(mut self, limit: usize) -> Self {\n");
+        out.push_str("                self.limit = Some(limit);\n");
+        out.push_str("                self\n");
+        out.push_str("            }\n\n");
+        out.push_str("            pub fn cursor(mut self, cursor: impl Into<String>) -> Self {\n");
+        out.push_str("                self.cursor = Some(cursor.into());\n");
+        out.push_str("                self\n");
+        out.push_str("            }\n\n");
+        out.push_str("            pub fn run(self) -> Result<(Vec<Row>, Option<String>), tensack::TensackError> {\n");
+        out.push_str("                let mut plan = tensack::PlanEnvelope::new(tensack::PlanOp::Scan, NAME);\n");
+        out.push_str("                plan.limit = self.limit;\n");
+        out.push_str("                plan.cursor = self.cursor;\n");
+        out.push_str("                match self.db.execute_plan(plan)? {\n");
+        out.push_str("                    tensack::PlanOutcome::Rows(page) => Ok((rows_from_records(page.rows)?, page.next_cursor)),\n");
+        out.push_str("                    _ => unreachable!(\"scan plans return row pages\"),\n");
+        out.push_str("                }\n");
+        out.push_str("            }\n");
+        out.push_str("        }\n");
+
+        out.push_str("\n        fn rows_from_records(records: Vec<tensack::Record>) -> Result<Vec<Row>, tensack::SchemaError> {\n");
+        out.push_str("            let mut rows = Vec::with_capacity(records.len());\n");
+        out.push_str("            for record in records {\n");
+        out.push_str("                rows.push(Row::from_record(&record)?);\n");
+        out.push_str("            }\n");
+        out.push_str("            Ok(rows)\n");
+        out.push_str("        }\n");
+
         out.push_str("    }\n");
     }
 
@@ -380,6 +538,82 @@ pub fn emit_raw_rust(ir: &SchemaIr) -> String {
     out.push_str("    }\n");
     out.push_str("}\n");
     out
+}
+
+fn emit_key_constructor(out: &mut String, field: &FieldIr, is_id: bool) {
+    let name = if is_id { "id" } else { &field.name };
+    out.push_str(&format!(
+        "            pub fn {}(value: {}) -> Key {{\n",
+        name,
+        rust_param_type(field)
+    ));
+    out.push_str("                Key {\n");
+    out.push_str(&format!("                    lookup: \"{}\",\n", name));
+    out.push_str(&format!(
+        "                    value: {},\n",
+        rust_sack_value_expr(field, "value")
+    ));
+    out.push_str("                }\n");
+    out.push_str("            }\n");
+}
+
+fn emit_get_method(out: &mut String, field: &FieldIr, is_id: bool) {
+    let name = if is_id { "id" } else { &field.name };
+    out.push_str(&format!(
+        "            pub fn {}(&self, value: {}) -> Result<Option<Row>, tensack::TensackError> {{\n",
+        name,
+        rust_param_type(field)
+    ));
+    out.push_str(&format!(
+        "                let plan = tensack::PlanEnvelope::new(tensack::PlanOp::Get, NAME).with_lookup(\"{}\").with_key(\"{}\", {});\n",
+        name,
+        name,
+        rust_sack_value_expr(field, "value")
+    ));
+    out.push_str("                match self.db.execute_plan(plan)? {\n");
+    out.push_str("                    tensack::PlanOutcome::Row(Some(record)) => Ok(Some(Row::from_record(&record)?)),\n");
+    out.push_str("                    tensack::PlanOutcome::Row(None) => Ok(None),\n");
+    out.push_str("                    _ => unreachable!(\"get plans return row results\"),\n");
+    out.push_str("                }\n");
+    out.push_str("            }\n");
+}
+
+fn emit_find_method(out: &mut String, field: &FieldIr) {
+    out.push_str(&format!(
+        "            pub fn {}(&self, value: {}) -> Result<Vec<Row>, tensack::TensackError> {{\n",
+        field.name,
+        rust_param_type(field)
+    ));
+    out.push_str(&format!(
+        "                let plan = tensack::PlanEnvelope::new(tensack::PlanOp::Find, NAME).with_lookup(\"{}\").with_key(\"{}\", {}).with_limit(1000);\n",
+        field.name,
+        field.name,
+        rust_sack_value_expr(field, "value")
+    ));
+    out.push_str("                match self.db.execute_plan(plan)? {\n");
+    out.push_str("                    tensack::PlanOutcome::Rows(page) => rows_from_records(page.rows).map_err(tensack::TensackError::from),\n");
+    out.push_str("                    _ => unreachable!(\"find plans return row pages\"),\n");
+    out.push_str("                }\n");
+    out.push_str("            }\n");
+}
+
+fn rust_param_type(field: &FieldIr) -> String {
+    match field.ty {
+        PrimitiveType::Id | PrimitiveType::Text => "impl Into<String>".to_owned(),
+        PrimitiveType::Int => "i64".to_owned(),
+        PrimitiveType::Float => "f64".to_owned(),
+        PrimitiveType::Bool => "bool".to_owned(),
+    }
+}
+
+fn rust_sack_value_expr(field: &FieldIr, value_expr: &str) -> String {
+    match field.ty {
+        PrimitiveType::Id => format!("tensack::SackValue::Id({value_expr}.into())"),
+        PrimitiveType::Text => format!("tensack::SackValue::Text({value_expr}.into())"),
+        PrimitiveType::Int => format!("tensack::SackValue::Int({value_expr})"),
+        PrimitiveType::Float => format!("tensack::SackValue::Float({value_expr})"),
+        PrimitiveType::Bool => format!("tensack::SackValue::Bool({value_expr})"),
+    }
 }
 
 fn rust_record_value_expr(field: &FieldIr) -> String {
@@ -830,9 +1064,17 @@ mod tests {
         assert!(code.contains("pub trust_score: f64"));
         assert!(code.contains("pub disabled: bool"));
         assert!(code.contains("pub account_id: String"));
-        assert!(code.contains("pub fn insert(db: &tensack::TensackDatabase, row: Row)"));
-        assert!(code.contains("pub fn get_many_by_account_id"));
-        assert!(code.contains("pub fn get_by_email"));
+        assert!(code.contains("pub trait TensackGeneratedTables"));
+        assert!(code.contains("pub struct TableHandle"));
+        assert!(code.contains("pub fn upsert(&self, row: Row)"));
+        assert!(code.contains("pub fn patch(&self, target: key::Key, patch: Patch)"));
+        assert!(code.contains("pub fn scan(&self) -> ScanBuilder"));
+        assert!(code.contains("pub fn insert(&self, row: Row)"));
+        assert!(code.contains("pub fn account_id(&self, value: impl Into<String>)"));
+        assert!(code.contains("pub fn email(&self, value: impl Into<String>)"));
+        assert!(!code.contains("pub fn insert(db: &tensack::TensackDatabase, row: Row)"));
+        assert!(!code.contains("pub fn get_many_by_account_id"));
+        assert!(!code.contains("pub fn get_by_email"));
     }
 
     #[test]
@@ -845,6 +1087,8 @@ mod tests {
         assert!(code.contains("pub email: String"));
         assert!(code.contains("pub fn into_record(self)"));
         assert!(code.contains("pub fn from_record(record: &tensack::Record)"));
+        assert!(code.contains("pub struct Patch"));
+        assert!(code.contains("pub mod key"));
     }
 
     #[test]

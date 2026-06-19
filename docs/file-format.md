@@ -1,6 +1,8 @@
 # Tensack File Layout
 
 This document describes the durable layout used by the current local store:
+the root-level [TENSACK_STORAGE_SPEC.md](../TENSACK_STORAGE_SPEC.md) is the
+current storage decision spec.
 
 ```txt
 schema.tensack  = logical schema truth
@@ -26,10 +28,12 @@ my-chat.tensack/
   tensack.toml
   tables/
     users/
-      active.ten
-      0000.ten
+      zz/
+        zzz.ten
+        zzy.ten
     messages/
-      active.ten
+      zz/
+        zzz.ten
   engine/
     users.tenb
     messages.tenb
@@ -61,8 +65,9 @@ Rules:
 - rows belong to normal schema tables.
 - `R` appends a full replacement row.
 - `D` appends a delete tombstone by id.
-- active writes append to `active.ten`.
-- sealed segments use sortable four-digit names like `0000.ten`.
+- chunk paths use reverse lowercase base-36 names: `<generation>/<chunk>.ten`.
+- generation folders are 2 characters and chunk filenames are 3 characters.
+- the first chunks are `zz/zzz.ten`, `zz/zzy.ten`, `zz/zzx.ten`.
 - broken final lines can be ignored during recovery later.
 
 Tabs and newlines inside values are escaped:
@@ -76,7 +81,8 @@ carriage return -> \r
 
 ## Generated Cache
 
-`.tenb` is a generated cache, not source data. The current implementation stores:
+`.tenb` is a generated cache, not source data. The current implementation uses
+a binary-packed v2 encoding that stores:
 
 - TENB version
 - table name
@@ -87,7 +93,8 @@ carriage return -> \r
 
 The runtime rebuilds `.tenb` when it is missing, stale, corrupt, or built for a
 different schema/source hash. Normal id and lookup reads use `.tenb`, then seek
-back into the canonical `.ten` row segment.
+back into the canonical `.ten` row segment. Legacy text v1 caches can be decoded
+for migration, but they are treated as stale and rebuilt as binary v2 caches.
 
 ## Search Index
 
@@ -113,8 +120,8 @@ next_tx = 3
 [tables.messages]
 id = 1
 path = "tables/messages"
-active = "active.ten"
-segments = []
+next_chunk = 2
+chunks = ["zz/zzz.ten", "zz/zzy.ten"]
 header = "id\tbody"
 
 [tables.messages.index]
@@ -131,6 +138,7 @@ Implemented now:
 - generated `.tenb` cache rebuilds from `.ten`
 - id lookup through `.tenb`
 - declared lookup reads through `.tenb`
+- table scan and count through `.tenb`
 - `tensack.toml` physical layout metadata
 
 Not implemented yet:
@@ -138,4 +146,3 @@ Not implemented yet:
 - segment sealing/compaction
 - repair CLI
 - `.tenx` full-text search
-- binary-packed `.tenb` layout; current encoding is internal and disposable

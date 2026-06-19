@@ -2,6 +2,15 @@
 
 **Document purpose:** define the complete backend structure for `tensack`: a human-readable, TSV-backed local database with a tiny imported Rust-macro schema file, compile-time generated Rust registries, type-safe table/field/lookup APIs, and SDK generation from a shared schema IR.
 
+**Status:** background reference. Current decisions live in `TENSACK_BOOK.md`
+and the focused `TENSACK_*_SPEC.md` files.
+
+**Current chunk naming update:** any older examples in this document that mention
+`active.ten` or four-digit sealed segments are superseded by
+`tensack_chunk_naming_spec.md`: table chunks use reverse lowercase base-36 paths
+like `zz/zzz.ten`, `zz/zzy.ten`, and generation folders keep chunk filenames at
+3 characters.
+
 This document is written as an implementation spec. It assumes the public product goal is:
 
 ```txt

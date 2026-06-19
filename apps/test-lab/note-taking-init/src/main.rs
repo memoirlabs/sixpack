@@ -7,6 +7,7 @@ use tensack_schema_compiler::{compile_schema, database_schema_from_ir, emit_raw_
 include!(concat!(env!("OUT_DIR"), "/tensack_generated_schema.rs"));
 
 use tensack_generated_schema as sdk;
+use tensack_generated_schema::TensackGeneratedTables;
 
 const SCHEMA_V1_SOURCE: &str = include_str!("../schema.v1.tensack");
 const SCHEMA_V2_SOURCE: &str = include_str!("../schema.v2.tensack");
@@ -89,48 +90,39 @@ fn init_note_database(
 }
 
 fn write_note_rows(db: &TensackDatabase) -> Result<(), Box<dyn std::error::Error>> {
-    if sdk::notebooks::get(db, "notebook-1")?.is_none() {
-        sdk::notebooks::insert(
-            db,
-            sdk::notebooks::Row {
-                id: "notebook-1".to_owned(),
-                title: "Inbox".to_owned(),
-                created_at: 1_700_000_000,
-            },
-        )?;
+    if db.notebooks().get().id("notebook-1")?.is_none() {
+        db.notebooks().insert(sdk::notebooks::Row {
+            id: "notebook-1".to_owned(),
+            title: "Inbox".to_owned(),
+            created_at: 1_700_000_000,
+        })?;
     }
-    if sdk::notes::get(db, "note-1")?.is_none() {
-        sdk::notes::insert(
-            db,
-            sdk::notes::Row {
-                id: "note-1".to_owned(),
-                notebook_id: "notebook-1".to_owned(),
-                title: "First note".to_owned(),
-                body: "Prove a generated Rust SDK can write rows.".to_owned(),
-                updated_at: 1_700_000_010,
-            },
-        )?;
+    if db.notes().get().id("note-1")?.is_none() {
+        db.notes().insert(sdk::notes::Row {
+            id: "note-1".to_owned(),
+            notebook_id: "notebook-1".to_owned(),
+            title: "First note".to_owned(),
+            body: "Prove a generated Rust SDK can write rows.".to_owned(),
+            updated_at: 1_700_000_010,
+        })?;
     }
 
-    let notes = sdk::notes::get_many_by_notebook_id(db, "notebook-1")?;
+    let notes = db.notes().find().notebook_id("notebook-1")?;
     println!("wrote {} note row(s) for notebook-1", notes.len());
     Ok(())
 }
 
 fn write_tag_rows(db: &TensackDatabase) -> Result<(), Box<dyn std::error::Error>> {
-    if sdk::tags::get(db, "tag-1")?.is_none() {
-        sdk::tags::insert(
-            db,
-            sdk::tags::Row {
-                id: "tag-1".to_owned(),
-                note_id: "note-1".to_owned(),
-                label: "demo".to_owned(),
-                created_at: 1_700_000_020,
-            },
-        )?;
+    if db.tags().get().id("tag-1")?.is_none() {
+        db.tags().insert(sdk::tags::Row {
+            id: "tag-1".to_owned(),
+            note_id: "note-1".to_owned(),
+            label: "demo".to_owned(),
+            created_at: 1_700_000_020,
+        })?;
     }
 
-    let tags = sdk::tags::get_many_by_note_id(db, "note-1")?;
+    let tags = db.tags().find().note_id("note-1")?;
     println!("wrote {} tag row(s) for note-1", tags.len());
     Ok(())
 }
@@ -191,19 +183,14 @@ mod tests {
         assert!(root.join("generated/schema-v1.rs").exists());
         assert!(db.join("tensack.toml").exists());
         assert!(db.join("engine/notebooks.tenb").exists());
-        assert!(db.join("tables/notebooks/active.ten").exists());
+        assert!(db.join("tables/notebooks").exists());
         assert!(!db.join("engine/notes.tenb").exists());
-        assert!(!db.join("tables/notes/active.ten").exists());
+        assert!(!db.join("tables/notes").exists());
 
         let generated = fs::read_to_string(root.join("generated/schema.rs")).unwrap();
         assert!(generated.contains("pub mod notebooks"));
         assert!(!generated.contains("pub mod notes"));
         assert!(generated.contains("pub fn database_schema()"));
-
-        let notebooks = fs::read_to_string(db.join("tables/notebooks/active.ten")).unwrap();
-        assert!(notebooks.contains("TEN\t1\ttable\tnotebooks\t"));
-        assert!(notebooks.contains("@lookup\ttitle\tmany\n"));
-        assert!(notebooks.ends_with("@data\n"));
 
         let db_v2 = init_note_database(&root, SCHEMA_V2_SOURCE, "schema-v2.rs").unwrap();
         write_note_rows(&db_v2).unwrap();
@@ -211,26 +198,26 @@ mod tests {
         assert!(root.join("generated/schema-v2.rs").exists());
         assert!(db.join("engine/notebooks.tenb").exists());
         assert!(db.join("engine/notes.tenb").exists());
-        assert!(db.join("tables/notebooks/active.ten").exists());
-        assert!(db.join("tables/notes/active.ten").exists());
+        assert!(db.join("tables/notebooks/zz/zzz.ten").exists());
+        assert!(db.join("tables/notes/zz/zzz.ten").exists());
 
         let generated = fs::read_to_string(root.join("generated/schema.rs")).unwrap();
         assert!(generated.contains("pub mod notebooks"));
         assert!(generated.contains("pub mod notes"));
 
-        let notes = fs::read_to_string(db.join("tables/notes/active.ten")).unwrap();
+        let notes = fs::read_to_string(db.join("tables/notes/zz/zzz.ten")).unwrap();
         assert!(notes.contains("TEN\t1\ttable\tnotes\t"));
         assert!(notes.contains("@field\tnotebook_id\tid\n"));
         assert!(notes.contains("@lookup\tnotebook_id\tmany\n"));
         assert!(notes.contains("@data\n"));
         assert!(notes.contains("R\t2\tnote-1\tnotebook-1\tFirst note\t"));
 
-        let note_rows = sdk::notes::get_many_by_notebook_id(&db_v2, "notebook-1").unwrap();
+        let note_rows = db_v2.notes().find().notebook_id("notebook-1").unwrap();
         assert_eq!(note_rows.len(), 1);
         assert_eq!(note_rows[0].title, "First note");
 
-        let notes_cache = fs::read_to_string(db.join("engine/notes.tenb")).unwrap();
-        assert!(notes_cache.contains("lookup\tnotebook_id\tnotebook-1\tnote-1\n"));
+        let notes_cache = fs::read(db.join("engine/notes.tenb")).unwrap();
+        assert!(notes_cache.starts_with(b"TENB\0"));
 
         let metadata = fs::read_to_string(db.join("tensack.toml")).unwrap();
         assert!(metadata.contains("[tables.notebooks]"));
@@ -243,20 +230,21 @@ mod tests {
 
         assert!(root.join("generated/schema-v3.rs").exists());
         assert!(db.join("engine/tags.tenb").exists());
-        assert!(db.join("tables/tags/active.ten").exists());
+        assert!(db.join("tables/tags/zz/zzz.ten").exists());
 
         let generated = fs::read_to_string(root.join("generated/schema.rs")).unwrap();
         assert!(generated.contains("pub mod tags"));
-        assert!(generated.contains("pub fn insert(db: &tensack::TensackDatabase, row: Row)"));
-        assert!(generated.contains("pub fn get_many_by_note_id"));
+        assert!(generated.contains("pub struct TableHandle"));
+        assert!(generated.contains("pub fn insert(&self, row: Row)"));
+        assert!(generated.contains("pub fn note_id(&self, value: impl Into<String>)"));
+        assert!(!generated.contains("pub fn get_many_by_note_id"));
 
-        let tag_rows = sdk::tags::get_many_by_note_id(&db_v3, "note-1").unwrap();
+        let tag_rows = db_v3.tags().find().note_id("note-1").unwrap();
         assert_eq!(tag_rows.len(), 1);
         assert_eq!(tag_rows[0].label, "demo");
 
-        let tags_cache = fs::read_to_string(db.join("engine/tags.tenb")).unwrap();
-        assert!(tags_cache.contains("lookup\tnote_id\tnote-1\ttag-1\n"));
-        assert!(tags_cache.contains("lookup\tlabel\tdemo\ttag-1\n"));
+        let tags_cache = fs::read(db.join("engine/tags.tenb")).unwrap();
+        assert!(tags_cache.starts_with(b"TENB\0"));
 
         let _ = fs::remove_dir_all(root);
     }

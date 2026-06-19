@@ -11,10 +11,18 @@ use std::path::{Path, PathBuf};
 
 use tensack_core::{DatabaseSchema, Record, SackValue, TableSchema};
 use tensack_format::{
-    Operation, RowPointer, TenOperationRecord, TenbCache, TenbLookupEntry, TenbRowEntry,
-    decode_ten_operation, decode_ten_row, decode_tenb_cache, encode_ten_header,
+    Operation, RowPointer, TENB_BINARY_VERSION, TenOperationRecord, TenbCache, TenbLookupEntry,
+    TenbRowEntry, decode_ten_operation, decode_ten_row, decode_tenb_cache, encode_ten_header,
     encode_ten_operation, encode_ten_preamble, encode_tenb_cache, is_ten_magic_line, source_hash,
 };
+
+const CHUNK_CHARS: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyz";
+const CHUNK_BASE: usize = 36;
+const GENERATION_WIDTH: usize = 2;
+const CHUNK_WIDTH: usize = 3;
+const CHUNKS_PER_GENERATION: u64 = 36u64.pow(CHUNK_WIDTH as u32);
+const MAX_GENERATIONS: u64 = 36u64.pow(GENERATION_WIDTH as u32);
+const MAX_CHUNKS: u64 = CHUNKS_PER_GENERATION * MAX_GENERATIONS;
 
 /// Local store handle.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,9 +76,9 @@ impl LocalStore {
         self.database_dir().join("tables").join(table)
     }
 
-    /// Active `.ten` row segment for a table.
-    pub fn active_ten_path(&self, table: &str) -> PathBuf {
-        self.table_dir(table).join("active.ten")
+    /// Deterministic `.ten` chunk path for a table counter.
+    pub fn chunk_ten_path(&self, table: &str, chunk_counter: u64) -> io::Result<PathBuf> {
+        Ok(self.table_dir(table).join(chunk_path(chunk_counter)?))
     }
 
     /// Generated binary cache for table indexes/lookups.
@@ -157,10 +165,18 @@ impl LocalStore {
         let line =
             encode_ten_operation(table, operation, tx_id, record).map_err(format_error_to_io)?;
         let bytes_written = (line.len() + 1) as u64;
+        let chunk_counter = self.next_chunk_counter(table.name())?;
+        let chunk_relative_path = chunk_path(chunk_counter)?;
+        let chunk_path = self.table_dir(table.name()).join(&chunk_relative_path);
+        if let Some(parent) = chunk_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
         let mut file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(self.active_ten_path(table.name()))?;
+            .write(true)
+            .create_new(true)
+            .open(&chunk_path)?;
+        file.write_all(encode_ten_preamble(table, &schema.schema_hash()).as_bytes())?;
         file.write_all(line.as_bytes())?;
         file.write_all(b"\n")?;
 
@@ -208,6 +224,39 @@ impl LocalStore {
             });
         }
         Ok(1)
+    }
+
+    /// Computes the next chunk counter for one table from metadata, falling back to files.
+    pub fn next_chunk_counter(&self, table_name: &str) -> io::Result<u64> {
+        let discovered_next = ten_files_in_read_order(&self.table_dir(table_name))?.len() as u64;
+        let metadata = self.metadata_path();
+        if metadata.exists() {
+            let file = File::open(metadata)?;
+            let mut in_table = false;
+            for line in BufReader::new(file).lines() {
+                let line = line?;
+                if line.starts_with("[tables.") {
+                    in_table = line == format!("[tables.{table_name}]");
+                    continue;
+                }
+                if in_table {
+                    let Some(value) = line.strip_prefix("next_chunk = ") else {
+                        continue;
+                    };
+                    return value
+                        .trim()
+                        .parse::<u64>()
+                        .map_err(|error| {
+                            io::Error::new(
+                                io::ErrorKind::InvalidData,
+                                format!("bad next_chunk for `{table_name}`: {error}"),
+                            )
+                        })
+                        .map(|stored_next| stored_next.max(discovered_next));
+                }
+            }
+        }
+        Ok(discovered_next)
     }
 
     /// Reads all current live records from a table using the generated `.tenb` cache.
@@ -274,6 +323,86 @@ impl LocalStore {
         Ok(rows)
     }
 
+    /// Reads one row by a unique lookup field.
+    pub fn get_unique_lookup(
+        &self,
+        schema: &DatabaseSchema,
+        table_name: &str,
+        field_name: &str,
+        key: &str,
+    ) -> io::Result<Option<Record>> {
+        let table = schema
+            .table(table_name)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "unknown table"))?;
+        if field_name == "id" {
+            return self.get_by_id(schema, table_name, key);
+        }
+        let lookup = table.lookup(field_name).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("unknown lookup `{field_name}` for table `{table_name}`"),
+            )
+        })?;
+        if !lookup.unique() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("lookup `{field_name}` for table `{table_name}` is not unique"),
+            ));
+        }
+        let rows = self.get_by_lookup(schema, table_name, field_name, key)?;
+        Ok(rows.into_iter().next())
+    }
+
+    /// Reads a page of live rows from a table.
+    pub fn scan_table(
+        &self,
+        schema: &DatabaseSchema,
+        table_name: &str,
+        limit: usize,
+        offset: usize,
+    ) -> io::Result<Vec<Record>> {
+        let cache = self.ensure_tenb_current(schema, table_name)?;
+        let table = schema
+            .table(table_name)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "unknown table"))?;
+        let mut rows = Vec::new();
+        for entry in cache.rows.iter().skip(offset).take(limit) {
+            rows.push(self.read_row_pointer(table, &entry.ptr)?);
+        }
+        Ok(rows)
+    }
+
+    /// Counts current live rows in one table.
+    pub fn count_table(&self, schema: &DatabaseSchema, table_name: &str) -> io::Result<usize> {
+        let cache = self.ensure_tenb_current(schema, table_name)?;
+        Ok(cache.rows.len())
+    }
+
+    /// Counts current live rows matching a lookup key.
+    pub fn count_lookup(
+        &self,
+        schema: &DatabaseSchema,
+        table_name: &str,
+        field_name: &str,
+        key: &str,
+    ) -> io::Result<usize> {
+        let cache = self.ensure_tenb_current(schema, table_name)?;
+        let table = schema
+            .table(table_name)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "unknown table"))?;
+        if field_name != "id" && table.lookup(field_name).is_none() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("unknown lookup `{field_name}` for table `{table_name}`"),
+            ));
+        }
+        Ok(cache
+            .lookups
+            .iter()
+            .filter(|entry| entry.field_name == field_name && entry.key == key)
+            .count())
+    }
+
     /// Rebuilds the `.tenb` cache from canonical `.ten` files.
     pub fn rebuild_tenb(&self, schema: &DatabaseSchema, table_name: &str) -> io::Result<TenbCache> {
         let table = schema
@@ -309,7 +438,7 @@ impl LocalStore {
         validate_unique_lookups(table, &lookups)?;
 
         let cache = TenbCache {
-            version: 1,
+            version: TENB_BINARY_VERSION,
             table: table.name().to_owned(),
             schema_hash: schema.schema_hash(),
             source_hash: scan.source_hash,
@@ -337,7 +466,7 @@ impl LocalStore {
         if path.exists() {
             let bytes = fs::read(&path)?;
             if let Ok(cache) = decode_tenb_cache(&bytes)
-                && cache.version == 1
+                && cache.version == TENB_BINARY_VERSION
                 && cache.table == table.name()
                 && cache.schema_hash == schema.schema_hash()
                 && cache.source_hash == scan.source_hash
@@ -348,14 +477,10 @@ impl LocalStore {
         self.rebuild_tenb(schema, table_name)
     }
 
-    fn ensure_table_layout(&self, table: &TableSchema, schema_hash: &str) -> io::Result<()> {
+    fn ensure_table_layout(&self, table: &TableSchema, _schema_hash: &str) -> io::Result<()> {
         fs::create_dir_all(self.table_dir(table.name()))?;
-        let active = self.active_ten_path(table.name());
-        if !active.exists() {
-            let mut file = File::create(&active)?;
-            file.write_all(encode_ten_preamble(table, schema_hash).as_bytes())?;
-        } else {
-            verify_header(table, &active)?;
+        for path in ten_files_in_read_order(&self.table_dir(table.name()))? {
+            verify_header(table, &path)?;
         }
         Ok(())
     }
@@ -372,10 +497,13 @@ impl LocalStore {
             out.push_str(&format!("[tables.{}]\n", table.name()));
             out.push_str(&format!("id = {table_id}\n"));
             out.push_str(&format!("path = \"tables/{}\"\n", table.name()));
-            out.push_str("active = \"active.ten\"\n");
             out.push_str(&format!(
-                "segments = [{}]\n",
-                sealed_segments_toml(&self.table_dir(table.name()))?
+                "next_chunk = {}\n",
+                self.next_chunk_counter(table.name())?
+            ));
+            out.push_str(&format!(
+                "chunks = [{}]\n",
+                chunk_segments_toml(&self.table_dir(table.name()))?
             ));
             out.push_str(&format!(
                 "header = \"{}\"\n\n",
@@ -391,21 +519,10 @@ impl LocalStore {
     }
 
     fn scan_table_files(&self, table: &TableSchema) -> io::Result<TableScan> {
-        let mut files = ten_files_in_read_order(&self.table_dir(table.name()))?;
-        let active = self.active_ten_path(table.name());
-        files.retain(|path| path != &active);
-        if active.exists() {
-            files.push(active);
-        }
-
         let mut live = BTreeMap::new();
         let mut hash_bytes = Vec::new();
-        for path in files {
-            let chunk_name = path
-                .file_name()
-                .and_then(|value| value.to_str())
-                .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "bad chunk name"))?
-                .to_owned();
+        for path in ten_files_in_read_order(&self.table_dir(table.name()))? {
+            let chunk_name = relative_chunk_name(&self.table_dir(table.name()), &path)?;
             let bytes = fs::read(&path)?;
             hash_bytes.extend_from_slice(chunk_name.as_bytes());
             hash_bytes.push(0);
@@ -626,43 +743,104 @@ fn validate_unique_lookups(table: &TableSchema, lookups: &[TenbLookupEntry]) -> 
     Ok(())
 }
 
+fn chunk_path(global_chunk_counter: u64) -> io::Result<PathBuf> {
+    if global_chunk_counter >= MAX_CHUNKS {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("chunk counter must be between 0 and {}", MAX_CHUNKS - 1),
+        ));
+    }
+
+    let generation = global_chunk_counter / CHUNKS_PER_GENERATION;
+    let local_chunk = global_chunk_counter % CHUNKS_PER_GENERATION;
+    let folder = encode_reverse_base36(generation as usize, GENERATION_WIDTH)?;
+    let file = encode_reverse_base36(local_chunk as usize, CHUNK_WIDTH)?;
+    Ok(PathBuf::from(folder).join(format!("{file}.ten")))
+}
+
+fn encode_reverse_base36(n: usize, width: usize) -> io::Result<String> {
+    let max = CHUNK_BASE.pow(width as u32);
+    if n >= max {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("value must be between 0 and {}", max - 1),
+        ));
+    }
+    encode_fixed_base36(max - 1 - n, width)
+}
+
+fn encode_fixed_base36(mut n: usize, width: usize) -> io::Result<String> {
+    let max = CHUNK_BASE.pow(width as u32);
+    if n >= max {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("value must be between 0 and {}", max - 1),
+        ));
+    }
+
+    let mut out = vec![b'0'; width];
+    for i in (0..width).rev() {
+        let digit = n % CHUNK_BASE;
+        out[i] = CHUNK_CHARS[digit];
+        n /= CHUNK_BASE;
+    }
+    String::from_utf8(out)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))
+}
+
 fn ten_files_in_read_order(table_dir: &Path) -> io::Result<Vec<PathBuf>> {
     if !table_dir.exists() {
         return Ok(Vec::new());
     }
     let mut files = Vec::new();
-    for entry in fs::read_dir(table_dir)? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.extension().and_then(|value| value.to_str()) == Some("ten") {
-            files.push(path);
-        }
-    }
+    collect_ten_files(table_dir, &mut files)?;
     files.sort();
+    files.reverse();
     Ok(files)
 }
 
-fn sealed_segments_toml(table_dir: &Path) -> io::Result<String> {
+fn collect_ten_files(dir: &Path, files: &mut Vec<PathBuf>) -> io::Result<()> {
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            collect_ten_files(&path, files)?;
+        } else if path.extension().and_then(|value| value.to_str()) == Some("ten") {
+            files.push(path);
+        }
+    }
+    Ok(())
+}
+
+fn chunk_segments_toml(table_dir: &Path) -> io::Result<String> {
     if !table_dir.exists() {
         return Ok(String::new());
     }
     let mut segments = Vec::new();
-    for entry in fs::read_dir(table_dir)? {
-        let entry = entry?;
-        let path = entry.path();
-        let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
-            continue;
-        };
-        if name != "active.ten" && name.ends_with(".ten") {
-            segments.push(name.to_owned());
-        }
+    for path in ten_files_in_read_order(table_dir)? {
+        segments.push(relative_chunk_name(table_dir, &path)?);
     }
-    segments.sort();
     Ok(segments
         .into_iter()
         .map(|segment| format!("\"{}\"", escape_toml(&segment)))
         .collect::<Vec<_>>()
         .join(", "))
+}
+
+fn relative_chunk_name(table_dir: &Path, path: &Path) -> io::Result<String> {
+    let relative = path.strip_prefix(table_dir).map_err(|error| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("bad chunk path `{}`: {error}", path.display()),
+        )
+    })?;
+    let value = relative.to_str().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("bad chunk path `{}`", relative.display()),
+        )
+    })?;
+    Ok(value.replace('\\', "/"))
 }
 
 fn escape_toml(value: &str) -> String {
@@ -737,21 +915,24 @@ mod tests {
         assert_eq!(one.operation, Operation::Put);
         assert!(one.bytes_written > 0);
 
-        let ten = fs::read_to_string(store.active_ten_path("messages")).unwrap();
-        assert!(ten.starts_with("TEN\t1\ttable\tmessages\t"));
-        assert!(ten.contains("@field\tid\tid\n"));
-        assert!(ten.contains("@field\tbody\ttext\n"));
-        assert!(ten.contains("@lookup\tid\tunique\n"));
-        assert!(ten.contains("@lookup\tcreated_at\tmany\n"));
-        assert!(ten.contains("@data\n"));
-        assert!(ten.contains("R\t1\tm1\thello\\tworld\t1\n"));
-        assert!(ten.contains("R\t2\tm2\tline\\nbreak\t2\n"));
-        assert!(!ten.contains("\tput\t"));
+        let first_chunk = fs::read_to_string(store.chunk_ten_path("messages", 0).unwrap()).unwrap();
+        let second_chunk =
+            fs::read_to_string(store.chunk_ten_path("messages", 1).unwrap()).unwrap();
+        assert!(first_chunk.starts_with("TEN\t1\ttable\tmessages\t"));
+        assert!(first_chunk.contains("@field\tid\tid\n"));
+        assert!(first_chunk.contains("@field\tbody\ttext\n"));
+        assert!(first_chunk.contains("@lookup\tid\tunique\n"));
+        assert!(first_chunk.contains("@lookup\tcreated_at\tmany\n"));
+        assert!(first_chunk.contains("@data\n"));
+        assert!(first_chunk.contains("R\t1\tm1\thello\\tworld\t1\n"));
+        assert!(second_chunk.contains("R\t2\tm2\tline\\nbreak\t2\n"));
+        assert!(!first_chunk.contains("\tput\t"));
 
         let metadata = fs::read_to_string(store.metadata_path()).unwrap();
         assert!(metadata.contains("[tables.messages]"));
         assert!(metadata.contains("next_tx = 3"));
-        assert!(metadata.contains("active = \"active.ten\""));
+        assert!(metadata.contains("next_chunk = 2"));
+        assert!(metadata.contains("chunks = [\"zz/zzz.ten\", \"zz/zzy.ten\"]"));
         assert!(metadata.contains("file = \"engine/messages.tenb\""));
         assert!(store.tenb_path("messages").exists());
 
@@ -760,5 +941,23 @@ mod tests {
         assert_eq!(rows[0].fields().get("id"), first.fields().get("id"));
         assert_eq!(rows[1].fields().get("id"), second.fields().get("id"));
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn chunk_paths_reverse_sort_from_counter() {
+        assert_eq!(chunk_path(0).unwrap(), PathBuf::from("zz").join("zzz.ten"));
+        assert_eq!(chunk_path(1).unwrap(), PathBuf::from("zz").join("zzy.ten"));
+        assert_eq!(
+            chunk_path(46_655).unwrap(),
+            PathBuf::from("zz").join("000.ten")
+        );
+        assert_eq!(
+            chunk_path(46_656).unwrap(),
+            PathBuf::from("zy").join("zzz.ten")
+        );
+        assert_eq!(
+            chunk_path(93_312).unwrap(),
+            PathBuf::from("zx").join("zzz.ten")
+        );
     }
 }
