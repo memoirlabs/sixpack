@@ -20,4 +20,4 @@ The current benchmark compares basic row CRUD for a small `users` table:
 
 Each sample uses a temporary directory-backed database. The benchmark measures
 the current Tensack storage path, including append writes, metadata updates, and
-generated `.tenb` cache rebuilds after writes.
+generated `.tenb` cache maintenance after writes.
