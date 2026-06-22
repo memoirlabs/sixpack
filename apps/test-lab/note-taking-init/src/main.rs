@@ -15,7 +15,7 @@ const SCHEMA_V3_SOURCE: &str = include_str!("../schema.sixpack");
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let output_root = output_root();
     let reset = std::env::args().any(|arg| arg == "--reset");
-    let show_artifacts = std::env::args().any(|arg| arg == "--show-artifacts");
+    let show_internals = std::env::args().any(|arg| arg == "--show-internals");
     if reset && output_root.exists() {
         fs::remove_dir_all(&output_root)?;
     }
@@ -55,9 +55,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!();
     print_current_view(&output_root);
-    if show_artifacts {
+    if show_internals {
         println!();
-        println!("artifacts");
+        println!("internals");
         print_tree(&output_root)?;
     }
     Ok(())
@@ -74,11 +74,11 @@ fn init_note_database(
     let schema = database_schema_from_ir(&ir)?;
 
     let generated_dir = output_root.join("generated");
-    let artifacts_dir = generated_dir.join("artifacts");
+    let internals_dir = generated_dir.join("internals");
     fs::create_dir_all(&generated_dir)?;
-    fs::create_dir_all(&artifacts_dir)?;
+    fs::create_dir_all(&internals_dir)?;
     let generated = emit_raw_rust(&ir);
-    fs::write(artifacts_dir.join(generated_file_name), &generated)?;
+    fs::write(internals_dir.join(generated_file_name), &generated)?;
     fs::write(generated_dir.join("schema.rs"), generated)?;
 
     let db = Database::open_local_with_schema(output_root, "notes-db", schema);
@@ -189,7 +189,7 @@ mod tests {
 
         let db = root.join("notes-db");
         assert!(root.join("generated/schema.rs").exists());
-        assert!(root.join("generated/artifacts/schema-v1.rs").exists());
+        assert!(root.join("generated/internals/schema-v1.rs").exists());
         assert!(!root.join("generated/schema-v1.rs").exists());
         assert!(db.join("sixpack.toml").exists());
         assert!(db.join("engine/notebooks.6b").exists());
@@ -205,7 +205,7 @@ mod tests {
         let db_v2 = init_note_database(&root, SCHEMA_V2_SOURCE, "schema-v2.rs").unwrap();
         write_note_rows(&db_v2).unwrap();
 
-        assert!(root.join("generated/artifacts/schema-v2.rs").exists());
+        assert!(root.join("generated/internals/schema-v2.rs").exists());
         assert!(db.join("engine/notebooks.6b").exists());
         assert!(db.join("engine/notes.6b").exists());
         assert!(db.join("tables/notebooks/zzz.6").exists());
@@ -240,7 +240,7 @@ mod tests {
         let db_v3 = init_note_database(&root, SCHEMA_V3_SOURCE, "schema-v3.rs").unwrap();
         write_tag_rows(&db_v3).unwrap();
 
-        assert!(root.join("generated/artifacts/schema-v3.rs").exists());
+        assert!(root.join("generated/internals/schema-v3.rs").exists());
         assert!(db.join("engine/tags.6b").exists());
         assert!(db.join("tables/tags/zzz.6").exists());
 

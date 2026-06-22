@@ -4,11 +4,15 @@ This document separates shipped behavior from target design.
 
 ## Recent History Summary
 
+**Naming note:** current code, docs, crates, commands, and examples use
+**sixpack**. Older draft context has been normalized to **sixpack** so archived
+history does not leave a second project name hanging around.
+
 - `c448837` (`ADD LATER`): added the note-taking init test-lab crate,
   schema-compiler build path, reverse chunk naming spec, and early generated
   SDK experiment.
-- Current working change: adds the internal plan executor, generated table
-  handles, `patch`/`scan`/`count`, remove-by-unique plan behavior, and
+- Later v0 runtime work added the internal plan executor, generated table
+  handles, `patch` / `scan` / `count`, remove-by-unique plan behavior, and
   binary-packed `.6b` v2 caches.
 
 ## Implemented Now

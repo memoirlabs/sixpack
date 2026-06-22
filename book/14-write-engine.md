@@ -62,8 +62,8 @@ next_tx = 421
 next_chunk = 17
 ```
 
-Chunk lists, migration traces, generated SDK artifacts, and debug dumps are
-derived/internal artifacts. Normal users should see the current schema and use
+Chunk lists, migration traces, generated SDK outputs, and debug dumps are
+derived/internal files. Normal users should see the current schema and use
 the public `get` / `write` surface unless they intentionally inspect internals.
 
 The generated `.6b` file and `sixpack.toml` are allowed to lag the hot write

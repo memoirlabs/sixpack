@@ -287,7 +287,7 @@ tool_calls {
   lookup started_at
 }
 
-artifacts {
+attachments {
   id: id
   conversation_id: id
   message_id: id
@@ -334,7 +334,7 @@ why this shape works:
 messages stay simple
 edits go into message_revisions
 tool payloads do not bloat message rows
-artifact bytes live in blobs
+attachment bytes live in blobs
 memory is searchable by user and kind
 everything is still primitive scalar fields
 every sdk can generate the same shape
@@ -649,7 +649,7 @@ conversations
 messages
 message_revisions
 tool_calls
-artifacts
+attachments
 blobs
 memories
 ```
@@ -1067,7 +1067,7 @@ good parquet use cases:
 count messages by day
 token totals by model
 tool failures by name
-artifact sizes by mime
+attachment sizes by mime
 memory confidence distributions
 bulk export
 offline analysis

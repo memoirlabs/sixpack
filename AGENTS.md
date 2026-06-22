@@ -119,7 +119,7 @@ conflict with the book chapters, the book wins.
 ## Experiment Workflow
 
 - Keep `apps/test-lab` for temporary experiments and ad-hoc checks.
-- Keep experimental artifacts in one of:
+- Keep experimental files in one of:
   - `apps/test-lab/fixtures/*` (inputs)
   - `apps/test-lab/experiments/*` (active notes)
 - On completion of an experiment, archive a short, decision-focused summary

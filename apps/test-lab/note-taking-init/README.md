@@ -22,7 +22,7 @@ local database under `target/test-lab/note-taking-init/notes-db/`.
 
 By default, the binary prints only the current user-facing schema and database
 paths. Versioned generated files and storage/index files are kept as internal
-artifacts. Pass `--show-artifacts` when you intentionally want to inspect them.
+details. Pass `--show-internals` when you intentionally want to inspect them.
 
 Run both phases:
 
@@ -30,10 +30,10 @@ Run both phases:
 cargo run -p note-taking-init -- --reset
 ```
 
-Show internal artifacts:
+Show internal details:
 
 ```sh
-cargo run -p note-taking-init -- --reset --show-artifacts
+cargo run -p note-taking-init -- --reset --show-internals
 ```
 
 Run one phase at a time:
@@ -49,7 +49,7 @@ Expected final database shape:
 ```txt
 generated/
   schema.rs
-  artifacts/
+  internals/
     schema-v1.rs
     schema-v2.rs
     schema-v3.rs
