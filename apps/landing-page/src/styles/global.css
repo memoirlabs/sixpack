@@ -367,7 +367,7 @@ code {
   font-size: clamp(44px, 7vw, 82px);
   font-weight: 600;
   line-height: 0.96;
-  letter-spacing: -0.03em;
+  letter-spacing: 0;
 }
 
 .doc-lead {
@@ -396,7 +396,7 @@ code {
   font-size: clamp(30px, 4.8vw, 56px);
   font-weight: 600;
   line-height: 0.98;
-  letter-spacing: -0.025em;
+  letter-spacing: 0;
 }
 
 .doc-copy {
@@ -446,7 +446,7 @@ code {
   font-family: "Space Grotesk", Inter, ui-sans-serif, system-ui, sans-serif;
   font-size: 24px;
   font-weight: 600;
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
 }
 
 .doc-card p,

@@ -16,4 +16,4 @@ lint:
     cargo clippy --workspace --all-targets -- -D warnings
 
 install:
-    ./packaging/install.sh
+    ./user-scripts/install.sh

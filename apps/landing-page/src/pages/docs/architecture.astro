@@ -17,9 +17,9 @@ const hotMaps = [
 ];
 
 const layout = [
-  ["tables/<table>/*.6", "canonical readable row operations"],
-  ["engine/*.6b", "current generated per-table cache files"],
-  ["engine/state.6pack", "target private generated engine-state pack"],
+  ["tables/<table>/*.6", "the readable data files"],
+  ["engine/*.6b", "current generated speed files"],
+  ["engine/state.6pack", "target private rebuildable speed file"],
 ];
 ---
 
@@ -123,7 +123,7 @@ refresh recoverable metadata</code></pre>
     <section class="doc-block">
       <div class="doc-wrap">
         <p class="doc-kicker">/ storage atlas</p>
-        <h2 class="doc-section-title">Readable tables, private generated state.</h2>
+        <h2 class="doc-section-title">Readable tables, private speed files.</h2>
         <div class="doc-table">
           {layout.map(([name, body]) => (
             <div>

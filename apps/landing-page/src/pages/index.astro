@@ -5,7 +5,7 @@ const examples = [
   {
     label: "schema.sixpack",
     title: "Schema first",
-    body: "The pretty part is the source of truth. Tables, fields, and lookups stay small enough to read.",
+    body: "Define the data once. Tables, fields, and lookups stay short enough to read.",
     code: `<span class="c-key">schema</span><span class="c-punc">!</span> <span class="c-punc">{</span>
   <span class="c-table">notebooks</span> <span class="c-punc">{</span>
     <span class="c-field">id</span> <span class="c-type">id</span>
@@ -27,8 +27,8 @@ const examples = [
   },
   {
     label: "generated Rust",
-    title: "Typed calls",
-    body: "Generated selectors and write changes replace SQL strings with compiler-checked app code.",
+    title: "Typed app calls",
+    body: "Reads and writes become normal Rust calls instead of strings passed into a database.",
     code: `<span class="c-key">let</span> <span class="c-ident">db</span> <span class="c-op">=</span> <span class="c-fn">Database</span><span class="c-punc">::</span><span class="c-fn">open_local_with_schema</span><span class="c-punc">(</span>
   <span class="c-str">"./data"</span><span class="c-punc">,</span>
   <span class="c-str">"notes-db"</span><span class="c-punc">,</span>
@@ -47,8 +47,8 @@ const examples = [
   },
   {
     label: "tables/notes/zzz.6",
-    title: "Actual data on disk",
-    body: "This is row data after writes. No schema header, no viewer, no guessing what changed.",
+    title: "Files you can inspect",
+    body: "Writes leave behind row files you can open, diff, copy, and recover from.",
     code: `<span class="c-dim"># actual note rows</span>
 <span class="c-key">R</span> <span class="c-num">1002</span> <span class="c-str">note-1</span> <span class="c-str">inbox</span> <span class="c-str">First note</span> <span class="c-str">Draft the launch page</span> <span class="c-num">1700100000</span>
 <span class="c-key">R</span> <span class="c-num">1003</span> <span class="c-str">note-1</span> <span class="c-str">inbox</span> <span class="c-str">Ship the map</span> <span class="c-str">Readable rows, private speed.</span> <span class="c-num">1700100038</span>
@@ -68,33 +68,33 @@ const metrics = [
 const features = [
   {
     n: "01",
-    title: "Schema-shaped API",
-    body: "The schema defines rows, selectors, and write changes. Application code never touches a query string.",
+    title: "Typed app code",
+    body: "The schema creates the read and write calls. Your application does not build database strings.",
   },
   {
     n: "02",
-    title: "Readable truth",
-    body: ".6 segments stay the canonical append source. Generated files can be discarded and rebuilt at will.",
+    title: "Readable files first",
+    body: "The real data stays in local files you can inspect. Speed files are extra and can be rebuilt.",
   },
   {
     n: "03",
-    title: "Private engine state",
-    body: "Generated binary state is rebuildable. Today it is per-table .6b; the target is one private engine/state.6pack file.",
+    title: "Speed stays private",
+    body: "Indexes and caches stay behind the runtime. Users should see their data, not engine bookkeeping.",
   },
 ];
 
 const flow = [
-  { tag: "schema", body: "declared tables and lookups" },
-  { tag: "generated API", body: "selectors and changes, no SQL strings" },
-  { tag: ".6", body: "readable append-only source data", focus: true },
-  { tag: "runtime projection", body: "hot ids, lookups, counts, edits", focus: true },
-  { tag: "engine state", body: "current .6b caches, target state.6pack" },
+  { tag: "schema", body: "describe tables and lookups" },
+  { tag: "typed calls", body: "read and write without SQL strings" },
+  { tag: "local files", body: "append rows you can inspect", focus: true },
+  { tag: "fast cache", body: "serve ids, lookups, and counts", focus: true },
+  { tag: "rebuild", body: "regenerate speed files when needed" },
 ];
 
 const layoutRows = [
-  ["tables/<table>/*.6", "readable canonical row operations", "implemented"],
-  ["engine/*.6b", "per-table generated lookup/cache files", "current"],
-  ["engine/state.6pack", "one private rebuildable generated state pack", "target"],
+  ["tables/<table>/*.6", "the readable data files", "implemented"],
+  ["engine/*.6b", "generated speed files for reads", "current"],
+  ["engine/state.6pack", "one private rebuildable speed file", "target"],
 ];
 ---
 
@@ -107,23 +107,23 @@ const layoutRows = [
 
     <section class="hero">
       <div class="wrap">
-        <span class="eyebrow"><span class="dot"></span>local-first storage engine</span>
+        <span class="eyebrow"><span class="dot"></span>local data you can inspect</span>
         <h1 class="display">
-          The local database<br />
-          humans can <span class="ital">read.</span>
+          A local database<br />
+          you can <span class="ital">open.</span>
         </h1>
         <div class="hero-grid">
           <p class="lead-lg">
-            Build local apps without hiding state inside an opaque file. sixpack
-            keeps the database as a readable folder, your API typed, and the
-            generated engine state private where speed actually matters.
+            Build local apps without hiding data inside an opaque database file.
+            sixpack keeps your data in a readable folder, gives Rust code typed
+            calls, and keeps the speed layer rebuildable.
           </p>
           <div class="hero-side">
             <div class="actions">
               <a class="cta cta-primary" href="/docs">Read the docs &rarr;</a>
               <a class="cta cta-ghost" href="https://github.com/sixpack/sixpack">View source</a>
             </div>
-            <p class="hero-note">v0 scaffold · readable table folders · private generated state</p>
+            <p class="hero-note">v0 Rust library · local folder storage · no SQL strings</p>
           </div>
         </div>
       </div>
@@ -133,15 +133,15 @@ const layoutRows = [
       <div class="wrap stat-grid">
         <div class="stat">
           <span class="stat-num">6.4&times;</span>
-          <span class="stat-label">faster reads vs SQLite</span>
+          <span class="stat-label">faster point reads vs SQLite</span>
         </div>
         <div class="stat">
-          <span class="stat-num">.6</span>
-          <span class="stat-label">canonical readable row data</span>
+          <span class="stat-num">Rust</span>
+          <span class="stat-label">native embedded engine</span>
         </div>
         <div class="stat">
           <span class="stat-num">0</span>
-          <span class="stat-label">SQL strings in app code</span>
+          <span class="stat-label">SQL strings in your app code</span>
         </div>
       </div>
     </section>
@@ -165,11 +165,11 @@ const layoutRows = [
       <div class="wrap split">
         <div class="split-copy">
           <p class="kicker">/ storage flow</p>
-          <h2 class="head-lg">From schema<br />to readable bytes.</h2>
+          <h2 class="head-lg">From schema<br />to files you can open.</h2>
           <p class="muted">
-            Every write travels a predictable path. The append log is the source
-            of truth; everything downstream is a cache that can vanish and
-            regenerate without losing a row.
+            Every write follows the same simple path. The local row files are
+            the source of truth; the fast read layer can be rebuilt without
+            losing data.
           </p>
         </div>
         <div class="flow">
@@ -192,9 +192,9 @@ const layoutRows = [
           <p class="kicker">/ disk shape</p>
           <h2 class="head-lg">A folder database,<br />not a black box.</h2>
           <p class="muted">
-            The public shape stays obvious: table folders hold readable
-            <code>.6</code> data. Generated binary state is private and
-            rebuildable; the target is to collapse it into one engine-owned pack.
+            The public shape stays obvious: table folders hold the readable
+            data. Private speed files are generated by the runtime and can be
+            rebuilt from the data folder.
           </p>
         </div>
         <div class="layout-table">
@@ -217,8 +217,8 @@ const layoutRows = [
             <h2 class="head-lg">The syntax should sell it.</h2>
           </div>
           <p class="muted">
-            A schema that reads clean, generated calls that stay typed, and
-            bytes on disk that still make sense when you open the folder.
+            A schema that reads clean, app calls that stay typed, and files on
+            disk that still make sense when you open the folder.
           </p>
         </div>
         <div class="example-grid">
@@ -241,8 +241,12 @@ const layoutRows = [
         </div>
         <div class="data-contrast">
           <div class="contrast-copy">
-            <p class="kicker">/ same idea, different vibe</p>
+            <p class="kicker">/ same data, different file</p>
             <h3><code>.sqlite</code> vs <code>.6</code>, at a glance.</h3>
+            <p>
+              The app still gets typed calls. On disk, the difference is simple:
+              SQLite is opaque bytes; sixpack keeps row history readable.
+            </p>
           </div>
           <div class="contrast-grid">
             <div class="contrast-panel contrast-binary">
@@ -250,7 +254,7 @@ const layoutRows = [
               <code>01010011 01010001 01001100 01101001<br />00000000 11101010 01011100 10010001<br />10110100 00001010 01100011 00011100</code>
             </div>
             <div class="contrast-panel contrast-readable">
-              <span>sixpack .6 actual data</span>
+              <span>sixpack .6 database file</span>
               <code>R 1003 note-1 inbox Ship the map<br />R 1004 note-1 inbox Final copy<br />D 1005 scratch-note</code>
             </div>
           </div>
@@ -261,8 +265,7 @@ const layoutRows = [
             <h3>Honest numbers.</h3>
             <p>
               10,000 rows preloaded once, one live handle, 1,000 operations per
-              Criterion iteration. SQLite still wins big transactional update
-              batches.
+              Criterion iteration. SQLite still wins large update batches.
             </p>
           </div>
           <div class="bench">
@@ -354,7 +357,7 @@ const layoutRows = [
     font-size: clamp(52px, 8.6vw, 108px);
     font-weight: 600;
     line-height: 0.9;
-    letter-spacing: -0.035em;
+    letter-spacing: 0;
     text-align: left;
     color: var(--ink);
   }
@@ -363,7 +366,7 @@ const layoutRows = [
     font-family: "Newsreader", Georgia, serif;
     font-style: italic;
     font-weight: 500;
-    letter-spacing: -0.01em;
+    letter-spacing: 0;
     color: var(--accent-bright);
   }
 
@@ -471,7 +474,7 @@ const layoutRows = [
     display: block;
     font-size: clamp(38px, 6vw, 68px);
     font-weight: 500;
-    letter-spacing: -0.03em;
+    letter-spacing: 0;
     line-height: 1;
     color: var(--ink);
   }
@@ -507,7 +510,7 @@ const layoutRows = [
     font-family: "Space Grotesk", sans-serif;
     font-size: clamp(32px, 5.2vw, 60px);
     font-weight: 600;
-    letter-spacing: -0.03em;
+    letter-spacing: 0;
     line-height: 0.98;
     color: var(--ink);
   }
@@ -547,7 +550,7 @@ const layoutRows = [
     font-family: "Space Grotesk", sans-serif;
     font-size: 22px;
     font-weight: 600;
-    letter-spacing: -0.01em;
+    letter-spacing: 0;
   }
 
   .feature p {
@@ -674,7 +677,8 @@ const layoutRows = [
     letter-spacing: 0;
   }
 
-  .bench-copy p {
+  .bench-copy p,
+  .contrast-copy p {
     margin-top: 12px;
     color: var(--muted);
     font-size: 14.5px;
@@ -729,9 +733,7 @@ const layoutRows = [
 
   .data-contrast {
     display: grid;
-    grid-template-columns: minmax(240px, 0.42fr) minmax(0, 1fr);
-    gap: clamp(20px, 4vw, 44px);
-    align-items: start;
+    gap: clamp(18px, 3vw, 28px);
     margin-top: clamp(34px, 6vw, 66px);
     padding-top: clamp(28px, 4vw, 44px);
     border-top: 1px solid var(--line);
@@ -740,7 +742,7 @@ const layoutRows = [
   .contrast-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px;
+    gap: 12px;
   }
 
   .contrast-panel {
@@ -750,7 +752,7 @@ const layoutRows = [
     padding: 14px;
   }
 
-  .contrast-panel span {
+  .contrast-panel > span {
     display: block;
     margin-bottom: 12px;
     color: var(--muted-soft);
@@ -760,11 +762,12 @@ const layoutRows = [
 
   .contrast-panel code {
     display: block;
-    overflow-x: auto;
+    overflow: hidden;
     color: rgba(250, 250, 250, 0.42);
-    font-size: 12.5px;
+    font-size: clamp(12px, 1.45vw, 13.5px);
     line-height: 1.7;
-    white-space: nowrap;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
 
   .contrast-readable {
@@ -775,6 +778,16 @@ const layoutRows = [
   .contrast-readable span,
   .contrast-readable code {
     color: var(--accent-bright);
+  }
+
+  .contrast-readable .row-comment {
+    color: rgba(205, 255, 99, 0.56);
+  }
+
+  @media (max-width: 980px) {
+    .contrast-grid {
+      grid-template-columns: 1fr;
+    }
   }
 
   /* ---------- examples / code ---------- */
