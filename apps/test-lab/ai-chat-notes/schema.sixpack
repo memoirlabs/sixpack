@@ -1,0 +1,42 @@
+schema! {
+  conversations {
+    id id
+    owner_id id
+    title text
+    created_at int
+    updated_at int
+    archived bool
+
+    lookup owner_id
+    lookup updated_at
+  }
+
+  messages {
+    id id
+    conversation_id id
+    role text
+    body text
+    status text
+    model text
+    created_at int
+    sequence int
+
+    lookup conversation_id
+    lookup status
+  }
+
+  notes {
+    id id
+    owner_id id
+    title text
+    body text
+    source_kind text
+    source_id text
+    created_at int
+    updated_at int
+
+    lookup owner_id
+    lookup source_id
+    lookup updated_at
+  }
+}

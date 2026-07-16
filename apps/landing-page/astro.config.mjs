@@ -1,5 +1,3 @@
 import { defineConfig } from "astro/config";
 
-export default defineConfig({
-  site: "https://sixpack.dev",
-});
+export default defineConfig({});

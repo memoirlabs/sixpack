@@ -37,6 +37,8 @@ my-chat.sixpack/
     messages/
       zzz.6
   engine/
+    workspace.lock
+    revision
     users.6b
     messages.6b
     messages.6x
@@ -141,6 +143,21 @@ and recoverable engine state. It should stay small and should not contain
 per-row or per-key index data. Hot writes may leave counters behind the newest
 `.6` rows; fresh handles recover from canonical `.6` data.
 
+`engine/workspace.lock` is an advisory local-filesystem lock used to coordinate
+independently opened handles. `engine/revision` is an atomically published
+commit marker. A writer publishes a dirty marker before touching canonical
+data, syncs the `.6` append, then publishes the next transaction id as the clean
+revision. Other processes invalidate their generated and row caches when that
+revision changes.
+
+When the revision is dirty, recovery ignores a final `.6` line that does not
+end in a newline and the next writer truncates incomplete tails across every
+table before appending. An incomplete tail under a clean revision is treated as
+unexpected corruption: sixpack reports invalid data and leaves the file
+untouched. A corrupt generated `.6b` cache is rebuilt, while malformed complete
+`.6` rows, mismatched table/profile headers, and invalid revision markers fail
+loudly rather than being silently discarded.
+
 Example:
 
 ```toml
@@ -172,10 +189,17 @@ Implemented now:
 - table scan and count through `.6b`
 - `sixpack.toml` physical layout metadata
 - batch writes that append multiple `R`/`D` operations to one `.6` chunk
+- local workspace read/write locking across independently opened handles
+- revision-based cross-process cache invalidation
+- synced canonical writes and incomplete-tail recovery
 
 Not implemented yet:
 
-- segment sealing/compaction
+- crash-hardened segment sealing/compaction
 - repair CLI
 - `.6x` full-text search
 - `engine/state.6pack` replacing per-table `.6b` cache files
+
+An existing table compaction implementation is available only through the
+`experimental-compaction` Cargo feature. It is disabled by default until its
+crash-recovery boundary is hardened to the same level as normal appends.

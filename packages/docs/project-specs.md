@@ -14,6 +14,8 @@ status pages, and archived reference material for sixpack.
 - [AGENTS.md](../../AGENTS.md) — working constraints for this repository and the source-of-truth model for implementation.
 - [packages/docs/commands.md](commands.md) — CLI contract (currently `--version` and `help`).
 - [packages/docs/file-format.md](file-format.md) — `.6`, `.6b`, metadata, and local directory layout.
+- [packages/docs/ai-chat-notes.md](ai-chat-notes.md) — executable application contract for AI conversations, messages, notes, pagination, retries, streaming, and two-process use.
+- [packages/docs/api.md](api.md) — public `v0.0.1` generated/runtime API reference, return types, limits, errors, batching, and concurrency semantics.
 - [tests/contracts/README.md](../../tests/contracts/README.md) — contract test boundary intent.
 - [tests/snapshots/README.md](../../tests/snapshots/README.md) — snapshot testing intent.
 - [benchmark/README.md](../../benchmark/README.md) — benchmark intent.

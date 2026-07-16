@@ -20,6 +20,7 @@ sixpack shape, see [SQLite Mapping](13-sqlite-mapping.md).
 ```txt
 <table>::by::<unique_lookup>(value)  -> one row
 <table>::by::<lookup>(value)         -> many rows
+<table>::by::<lookup>(value).page(n) -> lookup page + next cursor
 <table>::all().limit(n)              -> page of rows
 <table>::count()                     -> row count
 ```
@@ -30,6 +31,7 @@ Examples:
 db.get(users::by::id("u1"))?;
 db.get(users::by::email("a@test.com"))?;
 db.get(messages::by::conversation_id("cv1"))?;
+db.get(messages::by::conversation_id("cv1").page(100))?;
 db.get(messages::all().limit(100))?;
 db.get(messages::count())?;
 ```
@@ -101,6 +103,16 @@ Gets current state once.
 - lookup selectors return many rows
 - `all` returns a page
 - `count` returns a number
+- `.page(limit)` on a non-unique lookup returns `(rows, next_cursor)`
+
+Lookup and table cursors are opaque offsets over current live rows, not
+snapshot tokens. Lookup results are ordered by row id. Applications that page
+chat histories should use sortable ids and keep an explicit sequence field for
+domain validation/display ordering.
+
+The build-time schema compiler emits the typed `Row`, `Patch`, `by`, `key`, and
+change API. The lightweight runtime `sixpack::schema!` macro emits schema
+metadata only and must not be documented as if it generated the typed SDK.
 
 ### watch
 

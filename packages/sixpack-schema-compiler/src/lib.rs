@@ -432,6 +432,9 @@ pub fn emit_raw_rust(ir: &SchemaIr) -> String {
         out.push_str("            pub fn cursor(mut self, cursor: impl Into<String>) -> Self {\n");
         out.push_str("                self.inner = self.inner.cursor(cursor);\n");
         out.push_str("                self\n");
+        out.push_str("            }\n\n");
+        out.push_str("            pub fn page(self, limit: usize) -> ManyPageSelector {\n");
+        out.push_str("                ManyPageSelector { inner: self.inner.limit(limit) }\n");
         out.push_str("            }\n");
         out.push_str("        }\n\n");
         out.push_str("        impl sixpack::GetRequest for ManySelector {\n");
@@ -441,6 +444,27 @@ pub fn emit_raw_rust(ir: &SchemaIr) -> String {
         out.push_str("            }\n\n");
         out.push_str("            fn from_outcome(outcome: sixpack::PlanOutcome) -> Result<Self::Output, sixpack::DatabaseError> {\n");
         out.push_str("                rows_from_records(sixpack::GetMany::from_outcome(outcome)?).map_err(sixpack::DatabaseError::from)\n");
+        out.push_str("            }\n");
+        out.push_str("        }\n");
+
+        out.push_str("\n        #[derive(Debug, Clone, PartialEq)]\n");
+        out.push_str("        pub struct ManyPageSelector {\n");
+        out.push_str("            inner: sixpack::GetMany,\n");
+        out.push_str("        }\n\n");
+        out.push_str("        impl ManyPageSelector {\n");
+        out.push_str("            pub fn cursor(mut self, cursor: impl Into<String>) -> Self {\n");
+        out.push_str("                self.inner = self.inner.cursor(cursor);\n");
+        out.push_str("                self\n");
+        out.push_str("            }\n");
+        out.push_str("        }\n\n");
+        out.push_str("        impl sixpack::GetRequest for ManyPageSelector {\n");
+        out.push_str("            type Output = (Vec<Row>, Option<String>);\n\n");
+        out.push_str("            fn into_plan(self) -> Result<sixpack::PlanEnvelope, sixpack::DatabaseError> {\n");
+        out.push_str("                Ok(self.inner.into_plan())\n");
+        out.push_str("            }\n\n");
+        out.push_str("            fn from_outcome(outcome: sixpack::PlanOutcome) -> Result<Self::Output, sixpack::DatabaseError> {\n");
+        out.push_str("                let page = sixpack::GetPage::from_outcome(outcome)?;\n");
+        out.push_str("                Ok((rows_from_records(page.rows)?, page.next_cursor))\n");
         out.push_str("            }\n");
         out.push_str("        }\n");
 
@@ -1224,6 +1248,8 @@ mod tests {
         assert!(code.contains("pub fn set(row: Row)"));
         assert!(code.contains("pub fn edit(target: key::Key, patch: Patch)"));
         assert!(code.contains("pub fn all() -> PageSelector"));
+        assert!(code.contains("pub fn page(self, limit: usize) -> ManyPageSelector"));
+        assert!(code.contains("pub struct ManyPageSelector"));
         assert!(code.contains("pub fn account_id(&self, value: impl Into<String>)"));
         assert!(code.contains("pub fn email(&self, value: impl Into<String>)"));
         assert!(code.contains("pub fn database_schema_ref()"));

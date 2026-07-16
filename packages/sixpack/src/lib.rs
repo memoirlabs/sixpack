@@ -11,9 +11,9 @@ pub use sixpack_core::{
     DatabaseSchema, FieldSpec, PrimitiveType, Record, SchemaError, TableSchema, Value, Workspace,
 };
 pub use sixpack_format::Operation;
-pub use sixpack_store::{
-    AppendOperation, AppendResult, CompactionResult, LocalStore, WriteBatch, WriteBatchMode,
-};
+#[cfg(feature = "experimental-compaction")]
+pub use sixpack_store::CompactionResult;
+pub use sixpack_store::{AppendOperation, AppendResult, LocalStore, WriteBatch, WriteBatchMode};
 
 const DEFAULT_PLAN_LIMIT: usize = 100;
 const MAX_PLAN_LIMIT: usize = 1_000;
@@ -937,6 +937,26 @@ impl Database {
         }
     }
 
+    /// Reads one page of rows matching a declared lookup key.
+    pub fn get_page_by(
+        &self,
+        table_name: &str,
+        lookup_field: &str,
+        key: &str,
+        limit: usize,
+        cursor: Option<&str>,
+    ) -> Result<PlanPage, DatabaseError> {
+        let mut plan = PlanEnvelope::new(PlanOp::Find, table_name)
+            .with_lookup(lookup_field)
+            .with_key(lookup_field, Value::Text(key.to_owned()))
+            .with_limit(limit);
+        plan.cursor = cursor.map(str::to_owned);
+        match self.execute_plan(plan)? {
+            PlanOutcome::Rows(page) => Ok(page),
+            _ => unreachable!("find plans return row pages"),
+        }
+    }
+
     /// Applies a partial update to one row addressed by a unique lookup.
     pub fn patch_by_id(
         &self,
@@ -1080,6 +1100,7 @@ impl Database {
     }
 
     /// Rewrites one table's canonical `.6` data to current live rows only.
+    #[cfg(feature = "experimental-compaction")]
     pub fn compact_table(&self, table_name: &str) -> Result<CompactionResult, DatabaseError> {
         self.store
             .compact_table(&self.schema, table_name)
@@ -1287,6 +1308,34 @@ mod tests {
         db
     }
 
+    fn chat_schema() -> DatabaseSchema {
+        let mut db = DatabaseSchema::new();
+        let mut conversations = TableSchema::new("conversations");
+        conversations.add_field("id", PrimitiveType::Id).unwrap();
+        conversations
+            .add_field("owner_id", PrimitiveType::Id)
+            .unwrap();
+        conversations
+            .add_field("title", PrimitiveType::Text)
+            .unwrap();
+        conversations.add_lookup("owner_id", false).unwrap();
+        db.add_table(conversations).unwrap();
+
+        let mut messages = TableSchema::new("messages");
+        messages.add_field("id", PrimitiveType::Id).unwrap();
+        messages
+            .add_field("conversation_id", PrimitiveType::Id)
+            .unwrap();
+        messages.add_field("role", PrimitiveType::Text).unwrap();
+        messages.add_field("body", PrimitiveType::Text).unwrap();
+        messages
+            .add_field("created_at", PrimitiveType::Int)
+            .unwrap();
+        messages.add_lookup("conversation_id", false).unwrap();
+        db.add_table(messages).unwrap();
+        db
+    }
+
     #[test]
     fn init_creates_empty_note_database_layout() {
         let root = temp_root();
@@ -1306,6 +1355,254 @@ mod tests {
         assert!(metadata.contains("next_chunk = 0"));
         assert!(metadata.contains("file = \"engine/notebooks.6b\""));
         assert!(metadata.contains("file = \"engine/notes.6b\""));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn paged_chat_histories_stay_isolated_and_survive_reopen() {
+        let root = temp_root();
+        let schema = chat_schema();
+        let db = Database::open_local_with_schema(root.clone(), "chat", schema.clone());
+        db.init().unwrap();
+
+        db.insert_many(&[
+            Record::new("conversations")
+                .with_id("c1")
+                .unwrap()
+                .with_field("owner_id", Value::Id("u1".to_owned()))
+                .unwrap()
+                .with_field("title", "First chat")
+                .unwrap(),
+            Record::new("conversations")
+                .with_id("c2")
+                .unwrap()
+                .with_field("owner_id", Value::Id("u2".to_owned()))
+                .unwrap()
+                .with_field("title", "Second chat")
+                .unwrap(),
+        ])
+        .unwrap();
+
+        let messages = (0..150)
+            .map(|index| {
+                let conversation = if index % 2 == 0 { "c1" } else { "c2" };
+                Record::new("messages")
+                    .with_id(format!("m-{index:04}"))
+                    .unwrap()
+                    .with_field("conversation_id", Value::Id(conversation.to_owned()))
+                    .unwrap()
+                    .with_field("role", if index % 4 < 2 { "user" } else { "assistant" })
+                    .unwrap()
+                    .with_field("body", format!("message {index}"))
+                    .unwrap()
+                    .with_field("created_at", index as i64)
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+        db.insert_many(&messages).unwrap();
+
+        let mut cursor = None;
+        let mut first_chat = Vec::new();
+        loop {
+            let page = db
+                .get_page_by("messages", "conversation_id", "c1", 17, cursor.as_deref())
+                .unwrap();
+            first_chat.extend(page.rows);
+            cursor = page.next_cursor;
+            if cursor.is_none() {
+                break;
+            }
+        }
+        assert_eq!(first_chat.len(), 75);
+        assert!(first_chat.iter().all(|row| {
+            row.fields().get("conversation_id") == Some(&Value::Id("c1".to_owned()))
+        }));
+        assert!(
+            first_chat
+                .windows(2)
+                .all(|rows| { record_id(&rows[0]).unwrap() < record_id(&rows[1]).unwrap() })
+        );
+
+        let reopened = Database::open_local_with_schema(root.clone(), "chat", schema);
+        assert_eq!(
+            reopened
+                .get_page_by("messages", "conversation_id", "c2", 100, None)
+                .unwrap()
+                .rows
+                .len(),
+            75
+        );
+        assert_eq!(reopened.count("messages").unwrap(), 150);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn chat_storage_uses_shared_table_chunks_and_one_physical_line_per_row() {
+        let root = temp_root();
+        let schema = chat_schema();
+        let db = Database::open_local_with_schema(root.clone(), "chat", schema.clone());
+        db.init().unwrap();
+
+        db.insert_many(&[
+            Record::new("conversations")
+                .with_id("c1")
+                .unwrap()
+                .with_field("owner_id", Value::Id("u1".to_owned()))
+                .unwrap()
+                .with_field("title", "First\tchat")
+                .unwrap(),
+            Record::new("conversations")
+                .with_id("c2")
+                .unwrap()
+                .with_field("owner_id", Value::Id("u2".to_owned()))
+                .unwrap()
+                .with_field("title", "Second chat")
+                .unwrap(),
+        ])
+        .unwrap();
+
+        let rows = [
+            ("m-0001", "c1", "user", "hello\tthere\nnext\\line", 1),
+            ("m-0002", "c2", "user", "other conversation", 2),
+            ("m-0003", "c1", "assistant", "answer one", 3),
+            ("m-0004", "c2", "assistant", "answer two", 4),
+        ]
+        .map(|(id, conversation, role, body, created_at)| {
+            Record::new("messages")
+                .with_id(id)
+                .unwrap()
+                .with_field("conversation_id", Value::Id(conversation.to_owned()))
+                .unwrap()
+                .with_field("role", role)
+                .unwrap()
+                .with_field("body", body)
+                .unwrap()
+                .with_field("created_at", created_at)
+                .unwrap()
+        });
+        db.insert_many(&rows).unwrap();
+
+        let database_dir = root.join("chat");
+        let conversation_dir = database_dir.join("tables/conversations");
+        let message_dir = database_dir.join("tables/messages");
+        let conversation_entries = fs::read_dir(&conversation_dir)
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        let message_entries = fs::read_dir(&message_dir)
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(conversation_entries.len(), 1);
+        assert_eq!(message_entries.len(), 1);
+        assert_eq!(conversation_entries[0].file_name(), "zzz.6");
+        assert_eq!(message_entries[0].file_name(), "zzz.6");
+        assert!(!message_dir.join("c1").exists());
+        assert!(!message_dir.join("c2").exists());
+        assert!(!message_dir.join("c1.6").exists());
+        assert!(!message_dir.join("c2.6").exists());
+
+        let conversations = fs::read_to_string(conversation_entries[0].path()).unwrap();
+        let conversation_rows = conversations
+            .lines()
+            .filter(|line| line.starts_with("R\t"))
+            .collect::<Vec<_>>();
+        assert_eq!(conversation_rows.len(), 2);
+        assert!(conversation_rows.iter().any(|line| line.contains("\tc1\t")));
+        assert!(conversation_rows.iter().any(|line| line.contains("\tc2\t")));
+        assert!(conversations.contains("First\\tchat"));
+
+        let messages = fs::read_to_string(message_entries[0].path()).unwrap();
+        let message_rows = messages
+            .lines()
+            .filter(|line| line.starts_with("R\t"))
+            .collect::<Vec<_>>();
+        assert_eq!(message_rows.len(), 4);
+        assert!(message_rows.iter().any(|line| line.contains("\tc1\t")));
+        assert!(message_rows.iter().any(|line| line.contains("\tc2\t")));
+        assert!(messages.contains("hello\\tthere\\nnext\\\\line"));
+        assert!(
+            message_rows
+                .iter()
+                .all(|line| line.split('\t').count() == 7)
+        );
+
+        assert_eq!(
+            db.get_page_by("messages", "conversation_id", "c1", 100, None)
+                .unwrap()
+                .rows
+                .len(),
+            2
+        );
+        assert_eq!(
+            db.get_page_by("messages", "conversation_id", "c2", 100, None)
+                .unwrap()
+                .rows
+                .len(),
+            2
+        );
+        let reopened = Database::open_local_with_schema(root.clone(), "chat", schema);
+        let escaped = reopened.get_by_id("messages", "m-0001").unwrap().unwrap();
+        assert_eq!(
+            escaped.fields().get("body"),
+            Some(&Value::Text("hello\tthere\nnext\\line".to_owned()))
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn message_chunks_roll_over_by_size_not_by_conversation() {
+        let root = temp_root();
+        let schema = chat_schema();
+        let db = Database::open_local_with_schema(root.clone(), "chat", schema.clone());
+        db.init().unwrap();
+        let large_body = "x".repeat(600_000);
+
+        for (index, conversation) in ["c1", "c2"].into_iter().enumerate() {
+            db.insert(
+                &Record::new("messages")
+                    .with_id(format!("m-{index}"))
+                    .unwrap()
+                    .with_field("conversation_id", Value::Id(conversation.to_owned()))
+                    .unwrap()
+                    .with_field("role", "assistant")
+                    .unwrap()
+                    .with_field("body", large_body.clone())
+                    .unwrap()
+                    .with_field("created_at", index as i64)
+                    .unwrap(),
+            )
+            .unwrap();
+        }
+
+        let message_dir = root.join("chat/tables/messages");
+        let mut chunk_names = fs::read_dir(&message_dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect::<Vec<_>>();
+        chunk_names.sort();
+        assert_eq!(chunk_names, ["zzy.6", "zzz.6"]);
+        assert!(!message_dir.join("c1.6").exists());
+        assert!(!message_dir.join("c2.6").exists());
+
+        let reopened = Database::open_local_with_schema(root.clone(), "chat", schema);
+        assert_eq!(reopened.count("messages").unwrap(), 2);
+        assert_eq!(
+            reopened
+                .get_page_by("messages", "conversation_id", "c1", 10, None)
+                .unwrap()
+                .rows
+                .len(),
+            1
+        );
+        assert_eq!(
+            reopened
+                .get_page_by("messages", "conversation_id", "c2", 10, None)
+                .unwrap()
+                .rows
+                .len(),
+            1
+        );
         let _ = fs::remove_dir_all(root);
     }
 

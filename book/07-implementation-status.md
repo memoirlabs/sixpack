@@ -42,6 +42,10 @@ This chapter is the honesty check.
 - live table scans
 - live counts
 - unique lookup conflict checks
+- local workspace read/write coordination across independently opened handles
+- synced canonical commits and revision-based cache invalidation
+- cross-table incomplete final-operation recovery with clean-tail fail-closed checks
+- opt-in table compaction behind `experimental-compaction`
 
 ### Runtime
 
@@ -49,6 +53,9 @@ This chapter is the honesty check.
 - `db.get(selector)` for current state once
 - `db.write(change)` for declared state changes
 - `db.write_many(changes)` for same-table batched changes
+- `db.get_page_by(...)` for paged declared-lookup reads
+- generated `.page(limit)` lookup selectors that preserve the next cursor
+- executable typed AI chat and note-taking application contract
 - `execute_plan`
 
 ### Schema Compiler
@@ -75,7 +82,7 @@ This chapter is the honesty check.
 - `db.watch(selector)` live subscriptions
 - plan JSON serde
 - repair/inspect CLI
-- compaction
+- crash-hardened default compaction
 - `.6x`
 - durable cursor format
 - single generated `engine/state.6pack` file replacing per-table `.6b` files

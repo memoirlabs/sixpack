@@ -1,13 +1,19 @@
 [package]
-name = "sixpack-testkit"
+name = "ai-chat-notes"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
-[lib]
-path = "src/lib.rs"
+[[bin]]
+name = "ai-chat-notes"
+path = "src/main.rs"
 
 [dependencies]
 sixpack.workspace = true
+
+[build-dependencies]
+sixpack-schema-compiler.workspace = true
+
+[dev-dependencies]
 tempfile = "3"

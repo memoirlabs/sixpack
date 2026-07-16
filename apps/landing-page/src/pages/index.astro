@@ -57,12 +57,10 @@ const examples = [
 ];
 
 const metrics = [
-  { op: "get by id", sixpack: "0.50 ms", lite: "3.19 ms", win: true },
-  { op: "count", sixpack: "26 µs", lite: "3.10 ms", win: true },
-  { op: "add one-by-one", sixpack: "38.7 ms", lite: "301.1 ms", win: true },
-  { op: "add batched", sixpack: "4.28 ms", lite: "6.83 ms", win: true },
-  { op: "edit one-by-one", sixpack: "38.8 ms", lite: "5.69 ms", win: false },
-  { op: "edit batched", sixpack: "5.13 ms", lite: "0.52 ms", win: false },
+  { op: "coordinated hot read", value: "~32 µs", detail: "one id read" },
+  { op: "durable message write", value: "~11–13 ms", detail: "one synced commit" },
+  { op: "durable 10-row batch", value: "~12–13 ms", detail: "one synced commit" },
+  { op: "multi-process profile", value: "2 processes", detail: "local filesystem" },
 ];
 
 const features = [
@@ -78,8 +76,8 @@ const features = [
   },
   {
     n: "03",
-    title: "Speed stays private",
-    body: "Indexes and caches stay behind the runtime. Users should see their data, not engine bookkeeping.",
+    title: "Safe local coordination",
+    body: "Two low-traffic local processes share locks, durable commits, and cache revisions by default.",
   },
 ];
 
@@ -87,13 +85,15 @@ const flow = [
   { tag: "schema", body: "describe tables and lookups" },
   { tag: "typed calls", body: "read and write without SQL strings" },
   { tag: "local files", body: "append rows you can inspect", focus: true },
-  { tag: "fast cache", body: "serve ids, lookups, and counts", focus: true },
-  { tag: "rebuild", body: "regenerate speed files when needed" },
+  { tag: "safe commit", body: "sync data and publish a revision", focus: true },
+  { tag: "fast cache", body: "serve ids, lookups, and counts" },
 ];
 
 const layoutRows = [
   ["tables/<table>/*.6", "the readable data files", "implemented"],
   ["engine/*.6b", "generated speed files for reads", "current"],
+  ["engine/workspace.lock", "coordinates local readers and writers", "current"],
+  ["engine/revision", "invalidates stale process caches", "current"],
   ["engine/state.6pack", "one private rebuildable speed file", "target"],
 ];
 ---
@@ -121,9 +121,9 @@ const layoutRows = [
           <div class="hero-side">
             <div class="actions">
               <a class="cta cta-primary" href="/docs">Read the docs &rarr;</a>
-              <a class="cta cta-ghost" href="https://github.com/sixpack/sixpack">View source</a>
+              <a class="cta cta-ghost" href="https://github.com/memoirlabs/sixpack">View source</a>
             </div>
-            <p class="hero-note">v0 Rust library · local folder storage · no SQL strings</p>
+            <p class="hero-note">v0.0.1 · safety-first local storage · no SQL strings</p>
           </div>
         </div>
       </div>
@@ -132,8 +132,8 @@ const layoutRows = [
     <section class="stats">
       <div class="wrap stat-grid">
         <div class="stat">
-          <span class="stat-num">6.4&times;</span>
-          <span class="stat-label">faster point reads vs SQLite</span>
+          <span class="stat-num">2</span>
+          <span class="stat-label">low-traffic processes tested together</span>
         </div>
         <div class="stat">
           <span class="stat-num">Rust</span>
@@ -261,19 +261,19 @@ const layoutRows = [
         </div>
         <div class="bench-under">
           <div class="bench-copy">
-            <p class="kicker">/ sqlite benchmark snapshot</p>
-            <h3>Honest numbers.</h3>
+            <p class="kicker">/ safety-first benchmark snapshot</p>
+            <h3>Fast enough to stay safe.</h3>
             <p>
-              10,000 rows preloaded once, one live handle, 1,000 operations per
-              Criterion iteration. SQLite still wins large update batches.
+              10,000 rows preloaded on the benchmark filesystem. Writes include
+              workspace coordination, canonical data sync, and revision publication.
             </p>
           </div>
           <div class="bench">
             {metrics.map((m) => (
               <div class="bench-row">
                 <span class="bench-op">{m.op}</span>
-                <span class={`pill ${m.win ? "pill-win" : "pill-lose"}`}>sixpack {m.sixpack}</span>
-                <span class="pill pill-neutral">sqlite {m.lite}</span>
+                <span class="pill pill-win">{m.value}</span>
+                <span class="pill pill-neutral">{m.detail}</span>
               </div>
             ))}
           </div>

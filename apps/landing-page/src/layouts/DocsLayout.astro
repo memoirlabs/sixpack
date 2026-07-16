@@ -1,0 +1,63 @@
+---
+import type { CollectionEntry } from "astro:content";
+import BaseLayout from "./BaseLayout.astro";
+
+interface Props {
+  title: string;
+  description: string;
+  docs: CollectionEntry<"docs">[];
+  currentId?: string;
+}
+
+const { title, description, docs, currentId } = Astro.props;
+const currentIndex = currentId
+  ? docs.findIndex((entry) => entry.id === currentId)
+  : -1;
+const previous = currentIndex > 0 ? docs[currentIndex - 1] : undefined;
+const next = currentIndex >= 0 ? docs[currentIndex + 1] : undefined;
+---
+
+<BaseLayout title={`${title} · sixpack docs`} description={description}>
+  <div class="docs-shell">
+    <aside class="docs-sidebar">
+      <a class="docs-sidebar-title" href="/docs">Documentation</a>
+      <nav class="docs-nav" aria-label="Documentation">
+        {
+          docs.map((entry) => (
+            <a
+              href={`/docs/${entry.id}`}
+              aria-current={entry.id === currentId ? "page" : undefined}
+            >
+              {entry.data.title}
+            </a>
+          ))
+        }
+      </nav>
+    </aside>
+
+    <article class="docs-article prose">
+      <slot />
+
+      {
+        currentIndex >= 0 && (
+          <nav class="docs-pagination" aria-label="Documentation pages">
+            {previous ? (
+              <a href={`/docs/${previous.id}`}>
+                <span>Previous</span>
+                {previous.data.title}
+              </a>
+            ) : (
+              <span />
+            )}
+            {next && (
+              <a href={`/docs/${next.id}`} class="docs-next">
+                <span>Next</span>
+                {next.data.title}
+              </a>
+            )}
+          </nav>
+        )
+      }
+    </article>
+  </div>
+</BaseLayout>

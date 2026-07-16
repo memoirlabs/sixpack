@@ -24,6 +24,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ai-chat-notes"
+version = "0.0.1"
+dependencies = [
+ "sixpack",
+ "sixpack-schema-compiler",
+ "tempfile",
+]
+
+[[package]]
 name = "anes"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -372,7 +381,7 @@ checksum = "88904434abc2901f197fe8cc55f0445e7ded921dba5911dad2e2b39b48e663c4"
 
 [[package]]
 name = "note-taking-init"
-version = "0.0.0"
+version = "0.0.1"
 dependencies = [
  "sixpack",
  "sixpack-schema-compiler",
@@ -380,7 +389,7 @@ dependencies = [
 
 [[package]]
 name = "note-taking-playground"
-version = "0.0.0"
+version = "0.0.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -614,7 +623,7 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
 name = "sixpack"
-version = "0.0.0"
+version = "0.0.1"
 dependencies = [
  "sixpack-core",
  "sixpack-format",
@@ -623,14 +632,14 @@ dependencies = [
 
 [[package]]
 name = "sixpack-app"
-version = "0.0.0"
+version = "0.0.1"
 dependencies = [
  "sixpack-cli",
 ]
 
 [[package]]
 name = "sixpack-benchmark"
-version = "0.0.0"
+version = "0.0.1"
 dependencies = [
  "criterion",
  "rusqlite",
@@ -640,15 +649,15 @@ dependencies = [
 
 [[package]]
 name = "sixpack-cli"
-version = "0.0.0"
+version = "0.0.1"
 
 [[package]]
 name = "sixpack-core"
-version = "0.0.0"
+version = "0.0.1"
 
 [[package]]
 name = "sixpack-format"
-version = "0.0.0"
+version = "0.0.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -657,14 +666,14 @@ dependencies = [
 
 [[package]]
 name = "sixpack-schema-compiler"
-version = "0.0.0"
+version = "0.0.1"
 dependencies = [
  "sixpack-core",
 ]
 
 [[package]]
 name = "sixpack-store"
-version = "0.0.0"
+version = "0.0.1"
 dependencies = [
  "sixpack-core",
  "sixpack-format",
@@ -672,9 +681,10 @@ dependencies = [
 
 [[package]]
 name = "sixpack-testkit"
-version = "0.0.0"
+version = "0.0.1"
 dependencies = [
  "sixpack",
+ "tempfile",
 ]
 
 [[package]]

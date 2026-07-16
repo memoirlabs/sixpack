@@ -10,7 +10,7 @@ name = "note-taking-init"
 path = "src/main.rs"
 
 [dependencies]
-sixpack.workspace = true
+sixpack = { workspace = true, features = ["experimental-compaction"] }
 sixpack-schema-compiler.workspace = true
 
 [build-dependencies]

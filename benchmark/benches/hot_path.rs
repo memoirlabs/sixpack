@@ -10,6 +10,7 @@ use tempfile::TempDir;
 
 const HOT_ROWS: usize = 10_000;
 const OPS_PER_ITER: usize = 1_000;
+const DURABLE_WRITE_OPS_PER_ITER: usize = 10;
 const TABLE: &str = "events";
 
 fn event_schema() -> DatabaseSchema {
@@ -210,14 +211,14 @@ fn bench_hot_counts(c: &mut Criterion) {
 
 fn bench_hot_appends(c: &mut Criterion) {
     let mut group = c.benchmark_group("hot_appends_10k_rows");
-    group.throughput(Throughput::Elements(OPS_PER_ITER as u64));
+    group.throughput(Throughput::Elements(DURABLE_WRITE_OPS_PER_ITER as u64));
 
     let (_sixpack_dir, sixpack) = open_sixpack_hot(HOT_ROWS);
     let sixpack_next = AtomicUsize::new(HOT_ROWS);
     group.bench_function("sixpack_write_add", |b| {
         b.iter(|| {
-            let next = sixpack_next.fetch_add(OPS_PER_ITER, Ordering::Relaxed);
-            for index in next..next + OPS_PER_ITER {
+            let next = sixpack_next.fetch_add(DURABLE_WRITE_OPS_PER_ITER, Ordering::Relaxed);
+            for index in next..next + DURABLE_WRITE_OPS_PER_ITER {
                 sixpack.write(change::add(event_record(index))).unwrap();
             }
         });
@@ -227,8 +228,8 @@ fn bench_hot_appends(c: &mut Criterion) {
     let sixpack_batch_next = AtomicUsize::new(HOT_ROWS);
     group.bench_function("sixpack_insert_many", |b| {
         b.iter(|| {
-            let next = sixpack_batch_next.fetch_add(OPS_PER_ITER, Ordering::Relaxed);
-            let records = (next..next + OPS_PER_ITER)
+            let next = sixpack_batch_next.fetch_add(DURABLE_WRITE_OPS_PER_ITER, Ordering::Relaxed);
+            let records = (next..next + DURABLE_WRITE_OPS_PER_ITER)
                 .map(event_record)
                 .collect::<Vec<_>>();
             sixpack_batch.insert_many(&records).unwrap();
@@ -239,8 +240,8 @@ fn bench_hot_appends(c: &mut Criterion) {
     let sqlite_next = AtomicUsize::new(HOT_ROWS);
     group.bench_function("sqlite_insert", |b| {
         b.iter(|| {
-            let next = sqlite_next.fetch_add(OPS_PER_ITER, Ordering::Relaxed);
-            for index in next..next + OPS_PER_ITER {
+            let next = sqlite_next.fetch_add(DURABLE_WRITE_OPS_PER_ITER, Ordering::Relaxed);
+            for index in next..next + DURABLE_WRITE_OPS_PER_ITER {
                 insert_sqlite_event(&conn, index);
             }
         });
@@ -250,8 +251,12 @@ fn bench_hot_appends(c: &mut Criterion) {
     let sqlite_batch_next = AtomicUsize::new(HOT_ROWS);
     group.bench_function("sqlite_insert_transaction", |b| {
         b.iter(|| {
-            let next = sqlite_batch_next.fetch_add(OPS_PER_ITER, Ordering::Relaxed);
-            insert_sqlite_events_in_transaction(&mut sqlite_batch, next, OPS_PER_ITER);
+            let next = sqlite_batch_next.fetch_add(DURABLE_WRITE_OPS_PER_ITER, Ordering::Relaxed);
+            insert_sqlite_events_in_transaction(
+                &mut sqlite_batch,
+                next,
+                DURABLE_WRITE_OPS_PER_ITER,
+            );
         });
     });
 
@@ -260,13 +265,13 @@ fn bench_hot_appends(c: &mut Criterion) {
 
 fn bench_hot_edits(c: &mut Criterion) {
     let mut group = c.benchmark_group("hot_edits_10k_rows");
-    group.throughput(Throughput::Elements(OPS_PER_ITER as u64));
+    group.throughput(Throughput::Elements(DURABLE_WRITE_OPS_PER_ITER as u64));
 
     let (_sixpack_dir, sixpack) = open_sixpack_hot(HOT_ROWS);
     group.bench_function("sixpack_write_edit", |b| {
         let mut start = 0usize;
         b.iter(|| {
-            for offset in 0..OPS_PER_ITER {
+            for offset in 0..DURABLE_WRITE_OPS_PER_ITER {
                 let index = (start + offset) % HOT_ROWS;
                 sixpack
                     .write(change::edit_id(
@@ -285,7 +290,7 @@ fn bench_hot_edits(c: &mut Criterion) {
                     ))
                     .unwrap();
             }
-            start = (start + OPS_PER_ITER) % HOT_ROWS;
+            start = (start + DURABLE_WRITE_OPS_PER_ITER) % HOT_ROWS;
         });
     });
 
@@ -293,7 +298,7 @@ fn bench_hot_edits(c: &mut Criterion) {
     group.bench_function("sixpack_write_many_edit", |b| {
         let mut start = 0usize;
         b.iter(|| {
-            let changes = (0..OPS_PER_ITER)
+            let changes = (0..DURABLE_WRITE_OPS_PER_ITER)
                 .map(|offset| {
                     let index = (start + offset) % HOT_ROWS;
                     change::edit_id(
@@ -313,7 +318,7 @@ fn bench_hot_edits(c: &mut Criterion) {
                 })
                 .collect::<Vec<_>>();
             sixpack_batch.write_many(&changes).unwrap();
-            start = (start + OPS_PER_ITER) % HOT_ROWS;
+            start = (start + DURABLE_WRITE_OPS_PER_ITER) % HOT_ROWS;
         });
     });
 
@@ -321,7 +326,7 @@ fn bench_hot_edits(c: &mut Criterion) {
     group.bench_function("sqlite_update", |b| {
         let mut start = 0usize;
         b.iter(|| {
-            for offset in 0..OPS_PER_ITER {
+            for offset in 0..DURABLE_WRITE_OPS_PER_ITER {
                 let index = (start + offset) % HOT_ROWS;
                 conn.execute(
                     "UPDATE events SET payload = ?1, score = ?2 WHERE id = ?3",
@@ -333,7 +338,7 @@ fn bench_hot_edits(c: &mut Criterion) {
                 )
                 .unwrap();
             }
-            start = (start + OPS_PER_ITER) % HOT_ROWS;
+            start = (start + DURABLE_WRITE_OPS_PER_ITER) % HOT_ROWS;
         });
     });
 
@@ -341,8 +346,12 @@ fn bench_hot_edits(c: &mut Criterion) {
     group.bench_function("sqlite_update_transaction", |b| {
         let mut start = 0usize;
         b.iter(|| {
-            update_sqlite_events_in_transaction(&mut sqlite_batch, start, OPS_PER_ITER);
-            start = (start + OPS_PER_ITER) % HOT_ROWS;
+            update_sqlite_events_in_transaction(
+                &mut sqlite_batch,
+                start,
+                DURABLE_WRITE_OPS_PER_ITER,
+            );
+            start = (start + DURABLE_WRITE_OPS_PER_ITER) % HOT_ROWS;
         });
     });
 

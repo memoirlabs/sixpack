@@ -151,6 +151,23 @@ chunk. They may publish the generated `.6b` projection in memory and leave the
 on-disk `.6b` file stale; later database handles hash canonical `.6` data
 lines to detect stale `.6b` bytes and rebuild generated state.
 
+Independently opened handles coordinate through an advisory workspace lock in
+`engine/workspace.lock`. Reads take a shared lock and canonical mutations take
+an exclusive lock. Writers publish `engine/revision` as dirty before mutation,
+sync the `.6` append, then publish the clean next transaction id. A handle that
+observes a different revision discards its runtime row, chunk, and `.6b` caches
+before reading canonical state again.
+
+This coordination profile is intentionally narrow: it is tested for two
+low-traffic processes on one local filesystem. It does not claim multi-host or
+network-filesystem safety. Applications should batch related same-table writes
+and should not persist each streamed AI token as an individual transaction.
+
+If a process dies during an append, the dirty revision allows the next
+exclusive writer to truncate non-newline tails across every table before
+continuing. Without a dirty revision, the same incomplete tail is reported as
+corruption and left untouched.
+
 As the engine moves to `engine/state.6pack`, this invariant stays the same:
 generated binary state may lag, but canonical `.6` data must be enough to
 recover it.

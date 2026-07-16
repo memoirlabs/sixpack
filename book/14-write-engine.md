@@ -11,6 +11,24 @@ small, and easy to reason about.
 store = validate batch -> append batch -> publish projection
 ```
 
+For independently opened local handles, the implemented commit boundary is:
+
+```txt
+exclusive workspace lock
+  -> publish dirty revision
+  -> validate and append canonical batch
+  -> sync .6 data
+  -> publish clean revision
+  -> release workspace lock
+```
+
+This keeps transaction ids, chunk offsets, and recoverable metadata serialized
+across the supported two-process local profile.
+
+Normal application builds keep this safety path enabled without flags. The
+current maintenance compactor is available only through the
+`experimental-compaction` Cargo feature until its crash boundary is hardened.
+
 There should be one mental model for all mutations. A single-row write is a
 one-operation batch. Bulk insert, patch, upsert, and remove are larger batches.
 

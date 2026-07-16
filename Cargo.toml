@@ -10,15 +10,16 @@ members = [
   "packages/sixpack-schema-compiler",
   "apps/test-lab/note-taking-init",
   "apps/test-lab/note-taking-playground",
+  "apps/test-lab/ai-chat-notes",
   "benchmark",
 ]
 resolver = "2"
 
 [workspace.package]
-version = "0.0.0"
+version = "0.0.1"
 edition = "2024"
 license = "MIT"
-repository = "https://github.com/sixpack/sixpack"
+repository = "https://github.com/memoirlabs/sixpack"
 
 [workspace.dependencies]
 sixpack = { path = "packages/sixpack" }

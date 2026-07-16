@@ -6,9 +6,10 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use sixpack_core::{DatabaseSchema, Record, TableSchema, Value};
 use sixpack_format::{
@@ -24,6 +25,7 @@ const CHUNK_BASE: usize = 36;
 const CHUNK_WIDTH: usize = 3;
 const MAX_CHUNKS: u64 = 36u64.pow(CHUNK_WIDTH as u32);
 const MAX_SIX_CHUNK_BYTES: u64 = 1024 * 1024;
+static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 type TableName = String;
 type RowId = String;
@@ -44,6 +46,8 @@ pub struct LocalStore {
     next_chunk_cache: Arc<RwLock<BTreeMap<String, u64>>>,
     layout_cache: Arc<RwLock<BTreeSet<(String, String)>>>,
     table_writers: Arc<RwLock<BTreeMap<String, Arc<Mutex<()>>>>>,
+    workspace_gate: Arc<RwLock<()>>,
+    observed_revision: Arc<RwLock<Option<u64>>>,
 }
 
 impl std::fmt::Debug for LocalStore {
@@ -64,6 +68,16 @@ impl PartialEq for LocalStore {
 
 impl Eq for LocalStore {}
 
+struct WorkspaceReadGuard<'a> {
+    _process: RwLockReadGuard<'a, ()>,
+    _file: File,
+}
+
+struct WorkspaceWriteGuard<'a> {
+    _process: RwLockWriteGuard<'a, ()>,
+    _file: File,
+}
+
 /// Result of appending one logical row entry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AppendResult {
@@ -76,6 +90,7 @@ pub struct AppendResult {
 }
 
 /// Result of compacting one table's append segments.
+#[cfg(feature = "experimental-compaction")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompactionResult {
     /// Compacted table name.
@@ -219,6 +234,8 @@ impl LocalStore {
             next_chunk_cache: Arc::new(RwLock::new(BTreeMap::new())),
             layout_cache: Arc::new(RwLock::new(BTreeSet::new())),
             table_writers: Arc::new(RwLock::new(BTreeMap::new())),
+            workspace_gate: Arc::new(RwLock::new(())),
+            observed_revision: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -264,6 +281,137 @@ impl LocalStore {
         self.database_dir()
             .join("engine")
             .join(format!("{table}.6x"))
+    }
+
+    /// Cross-process coordination file for this workspace.
+    pub fn workspace_lock_path(&self) -> PathBuf {
+        self.database_dir().join("engine").join("workspace.lock")
+    }
+
+    /// Commit marker used to invalidate caches in other processes.
+    pub fn revision_path(&self) -> PathBuf {
+        self.database_dir().join("engine").join("revision")
+    }
+
+    fn workspace_lock_file(&self) -> io::Result<File> {
+        self.ensure_workspace_layout()?;
+        OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(self.workspace_lock_path())
+    }
+
+    fn workspace_read_guard(&self) -> io::Result<WorkspaceReadGuard<'_>> {
+        let process = self
+            .workspace_gate
+            .read()
+            .map_err(|_| io::Error::other("workspace gate lock poisoned"))?;
+        let file = self.workspace_lock_file()?;
+        file.lock_shared()?;
+        Ok(WorkspaceReadGuard {
+            _process: process,
+            _file: file,
+        })
+    }
+
+    fn workspace_write_guard(&self) -> io::Result<WorkspaceWriteGuard<'_>> {
+        let process = self
+            .workspace_gate
+            .write()
+            .map_err(|_| io::Error::other("workspace gate lock poisoned"))?;
+        let file = self.workspace_lock_file()?;
+        file.lock()?;
+        Ok(WorkspaceWriteGuard {
+            _process: process,
+            _file: file,
+        })
+    }
+
+    fn current_revision(&self) -> io::Result<u64> {
+        let path = self.revision_path();
+        if !path.exists() {
+            return Ok(0);
+        }
+        let value = fs::read_to_string(path)?;
+        value.trim().parse::<u64>().map_err(|error| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("bad workspace revision: {error}"),
+            )
+        })
+    }
+
+    fn refresh_if_revision_changed(&self) -> io::Result<()> {
+        let revision = self.current_revision()?;
+        let observed = *self
+            .observed_revision
+            .read()
+            .map_err(|_| io::Error::other("observed revision lock poisoned"))?;
+        if observed == Some(revision) {
+            return Ok(());
+        }
+
+        if observed.is_some() {
+            self.invalidate_cached_state()?;
+        }
+
+        *self
+            .observed_revision
+            .write()
+            .map_err(|_| io::Error::other("observed revision lock poisoned"))? = Some(revision);
+        Ok(())
+    }
+
+    fn invalidate_cached_state(&self) -> io::Result<()> {
+        self.sixb_cache
+            .write()
+            .map_err(|_| io::Error::other("sixb cache lock poisoned"))?
+            .clear();
+        self.runtime_sixb_cache
+            .write()
+            .map_err(|_| io::Error::other("runtime sixb cache lock poisoned"))?
+            .clear();
+        self.row_cache
+            .write()
+            .map_err(|_| io::Error::other("row cache lock poisoned"))?
+            .clear();
+        self.chunk_cache
+            .write()
+            .map_err(|_| io::Error::other("chunk cache lock poisoned"))?
+            .clear();
+        self.chunk_len_cache
+            .write()
+            .map_err(|_| io::Error::other("chunk length cache lock poisoned"))?
+            .clear();
+        *self
+            .next_tx_cache
+            .write()
+            .map_err(|_| io::Error::other("next tx cache lock poisoned"))? = None;
+        self.next_chunk_cache
+            .write()
+            .map_err(|_| io::Error::other("next chunk cache lock poisoned"))?
+            .clear();
+        Ok(())
+    }
+
+    fn publish_revision(&self, revision: u64) -> io::Result<()> {
+        let path = self.revision_path();
+        let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&tmp)?;
+        writeln!(file, "{revision}")?;
+        file.sync_data()?;
+        fs::rename(tmp, path)?;
+        *self
+            .observed_revision
+            .write()
+            .map_err(|_| io::Error::other("observed revision lock poisoned"))? = Some(revision);
+        Ok(())
     }
 
     /// Appends a put event to the `.6` table segment.
@@ -313,7 +461,25 @@ impl LocalStore {
         schema: &DatabaseSchema,
         batch: &WriteBatch,
     ) -> io::Result<Vec<AppendResult>> {
-        self.append_batch_inner(schema, batch)
+        if batch.is_empty() {
+            return Ok(Vec::new());
+        }
+        let _guard = self.workspace_write_guard()?;
+        self.refresh_if_revision_changed()?;
+        let recovering_dirty_workspace = self.current_revision()? == u64::MAX;
+        self.prepare_workspace_for_write(schema, batch.table(), recovering_dirty_workspace)?;
+        self.publish_revision(u64::MAX)?;
+        let results = match self.append_batch_inner(schema, batch) {
+            Ok(results) => results,
+            Err(error) => {
+                self.invalidate_cached_state()?;
+                return Err(error);
+            }
+        };
+        if let Some(last) = results.last() {
+            self.publish_revision(last.tx_id.saturating_add(1))?;
+        }
+        Ok(results)
     }
 
     /// Appends a delete event to the `.6` table segment.
@@ -362,13 +528,17 @@ impl LocalStore {
 
     /// Initializes an empty database layout for every table in the schema.
     pub fn init(&self, schema: &DatabaseSchema) -> io::Result<()> {
+        let _guard = self.workspace_write_guard()?;
+        self.refresh_if_revision_changed()?;
         self.ensure_workspace_layout()?;
         let schema_hash = schema.schema_hash();
         for table in schema.tables().values() {
             self.ensure_table_layout(table, &schema_hash)?;
-            self.rebuild_sixb(schema, table.name())?;
+            self.rebuild_sixb_inner(schema, table.name())?;
         }
-        self.write_metadata(schema, self.next_tx_id()?)
+        let next_tx = self.next_tx_id()?;
+        self.write_metadata(schema, next_tx)?;
+        self.publish_revision(next_tx)
     }
 
     /// Computes next transaction id from private engine metadata.
@@ -451,6 +621,16 @@ impl LocalStore {
 
     /// Reads all current live records from a table using the generated `.6b` cache.
     pub fn read_table(&self, schema: &DatabaseSchema, table_name: &str) -> io::Result<Vec<Record>> {
+        let _guard = self.workspace_read_guard()?;
+        self.refresh_if_revision_changed()?;
+        self.read_table_inner(schema, table_name)
+    }
+
+    fn read_table_inner(
+        &self,
+        schema: &DatabaseSchema,
+        table_name: &str,
+    ) -> io::Result<Vec<Record>> {
         let table = schema
             .table(table_name)
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "unknown table"))?;
@@ -472,6 +652,17 @@ impl LocalStore {
 
     /// Reads one row by implicit id lookup.
     pub fn get_by_id(
+        &self,
+        schema: &DatabaseSchema,
+        table_name: &str,
+        id: &str,
+    ) -> io::Result<Option<Record>> {
+        let _guard = self.workspace_read_guard()?;
+        self.refresh_if_revision_changed()?;
+        self.get_by_id_inner(schema, table_name, id)
+    }
+
+    fn get_by_id_inner(
         &self,
         schema: &DatabaseSchema,
         table_name: &str,
@@ -499,6 +690,18 @@ impl LocalStore {
         field_name: &str,
         key: &str,
     ) -> io::Result<Vec<Record>> {
+        let _guard = self.workspace_read_guard()?;
+        self.refresh_if_revision_changed()?;
+        self.get_by_lookup_inner(schema, table_name, field_name, key)
+    }
+
+    fn get_by_lookup_inner(
+        &self,
+        schema: &DatabaseSchema,
+        table_name: &str,
+        field_name: &str,
+        key: &str,
+    ) -> io::Result<Vec<Record>> {
         let table = schema
             .table(table_name)
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "unknown table"))?;
@@ -510,7 +713,7 @@ impl LocalStore {
         }
         if field_name == "id" {
             return self
-                .get_by_id(schema, table_name, key)
+                .get_by_id_inner(schema, table_name, key)
                 .map(|row| row.into_iter().collect());
         }
         if let Some(entries) = self.runtime_lookup_entries(table_name, field_name, key)? {
@@ -541,11 +744,13 @@ impl LocalStore {
         field_name: &str,
         key: &str,
     ) -> io::Result<Option<Record>> {
+        let _guard = self.workspace_read_guard()?;
+        self.refresh_if_revision_changed()?;
         let table = schema
             .table(table_name)
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "unknown table"))?;
         if field_name == "id" {
-            return self.get_by_id(schema, table_name, key);
+            return self.get_by_id_inner(schema, table_name, key);
         }
         let lookup = table.lookup(field_name).ok_or_else(|| {
             io::Error::new(
@@ -559,7 +764,7 @@ impl LocalStore {
                 format!("lookup `{field_name}` for table `{table_name}` is not unique"),
             ));
         }
-        let rows = self.get_by_lookup(schema, table_name, field_name, key)?;
+        let rows = self.get_by_lookup_inner(schema, table_name, field_name, key)?;
         Ok(rows.into_iter().next())
     }
 
@@ -571,6 +776,8 @@ impl LocalStore {
         limit: usize,
         offset: usize,
     ) -> io::Result<Vec<Record>> {
+        let _guard = self.workspace_read_guard()?;
+        self.refresh_if_revision_changed()?;
         let table = schema
             .table(table_name)
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "unknown table"))?;
@@ -592,6 +799,8 @@ impl LocalStore {
 
     /// Counts current live rows in one table.
     pub fn count_table(&self, schema: &DatabaseSchema, table_name: &str) -> io::Result<usize> {
+        let _guard = self.workspace_read_guard()?;
+        self.refresh_if_revision_changed()?;
         schema
             .table(table_name)
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "unknown table"))?;
@@ -610,6 +819,8 @@ impl LocalStore {
         field_name: &str,
         key: &str,
     ) -> io::Result<usize> {
+        let _guard = self.workspace_read_guard()?;
+        self.refresh_if_revision_changed()?;
         let table = schema
             .table(table_name)
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "unknown table"))?;
@@ -635,10 +846,21 @@ impl LocalStore {
 
     /// Rebuilds the `.6b` cache from canonical `.6` files.
     pub fn rebuild_sixb(&self, schema: &DatabaseSchema, table_name: &str) -> io::Result<SixbCache> {
+        let _guard = self.workspace_write_guard()?;
+        self.refresh_if_revision_changed()?;
+        self.rebuild_sixb_inner(schema, table_name)
+    }
+
+    fn rebuild_sixb_inner(
+        &self,
+        schema: &DatabaseSchema,
+        table_name: &str,
+    ) -> io::Result<SixbCache> {
         let table = schema
             .table(table_name)
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "unknown table"))?;
-        let scan = self.scan_table_files(table)?;
+        let schema_hash = schema.schema_hash();
+        let scan = self.scan_table_files(table, &schema_hash)?;
         let mut rows = Vec::new();
         let mut lookups = Vec::new();
 
@@ -671,7 +893,7 @@ impl LocalStore {
         let cache = SixbCache {
             version: SIXB_BINARY_VERSION,
             table: table.name().to_owned(),
-            schema_hash: schema.schema_hash(),
+            schema_hash,
             source_hash: scan.source_hash.clone(),
             rows,
             lookups,
@@ -688,16 +910,21 @@ impl LocalStore {
         schema: &DatabaseSchema,
         table_name: &str,
     ) -> io::Result<SixbCache> {
+        let _guard = self.workspace_read_guard()?;
+        self.refresh_if_revision_changed()?;
         self.ensure_sixb_snapshot(schema, table_name)
             .map(|cache| cache.as_ref().clone())
     }
 
     /// Rewrites one table to a single canonical `.6` chunk containing current live rows.
+    #[cfg(feature = "experimental-compaction")]
     pub fn compact_table(
         &self,
         schema: &DatabaseSchema,
         table_name: &str,
     ) -> io::Result<CompactionResult> {
+        let _workspace_guard = self.workspace_write_guard()?;
+        self.refresh_if_revision_changed()?;
         self.ensure_workspace_layout()?;
         let table = schema
             .table(table_name)
@@ -715,7 +942,7 @@ impl LocalStore {
         let bytes_before = old_paths.iter().try_fold(0u64, |total, path| {
             fs::metadata(path).map(|metadata| total.saturating_add(metadata.len()))
         })?;
-        let scan = self.scan_table_files(table)?;
+        let scan = self.scan_table_files(table, &schema.schema_hash())?;
         let tx_start = self.discovered_next_tx_id()?;
 
         let mut compacted = encode_six_preamble(table, &schema.schema_hash()).into_bytes();
@@ -747,8 +974,9 @@ impl LocalStore {
         self.set_next_chunk_counter(table.name(), 1)?;
         let next_tx = tx_start + live_rows as u64;
         self.set_next_tx_id(next_tx)?;
-        self.rebuild_sixb(schema, table.name())?;
+        self.rebuild_sixb_inner(schema, table.name())?;
         self.write_metadata(schema, next_tx)?;
+        self.publish_revision(next_tx)?;
 
         Ok(CompactionResult {
             table: table.name().to_owned(),
@@ -769,11 +997,12 @@ impl LocalStore {
         let table = schema
             .table(table_name)
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "unknown table"))?;
+        let schema_hash = schema.schema_hash();
         let path = self.sixb_path(table.name());
-        if let Some(cache) = self.runtime_sixb_to_cache(table.name(), &schema.schema_hash())? {
+        if let Some(cache) = self.runtime_sixb_to_cache(table.name(), &schema_hash)? {
             return self.remember_sixb_cache(cache);
         }
-        if let Some(cache) = self.cached_sixb(table.name(), &schema.schema_hash())? {
+        if let Some(cache) = self.cached_sixb(table.name(), &schema_hash)? {
             return Ok(cache);
         }
         if path.exists() {
@@ -781,17 +1010,17 @@ impl LocalStore {
             if let Ok(cache) = decode_sixb_cache(&bytes)
                 && cache.version == SIXB_BINARY_VERSION
                 && cache.table == table.name()
-                && cache.schema_hash == schema.schema_hash()
-                && cache.source_hash == self.scan_table_source_hash(table)?
+                && cache.schema_hash == schema_hash
+                && cache.source_hash == self.scan_table_source_hash(table, &schema_hash)?
             {
                 return self.remember_sixb_cache(cache);
             }
         }
-        self.rebuild_sixb(schema, table_name)
+        self.rebuild_sixb_inner(schema, table_name)
             .and_then(|cache| self.remember_sixb_cache(cache))
     }
 
-    fn ensure_table_layout(&self, table: &TableSchema, _schema_hash: &str) -> io::Result<()> {
+    fn ensure_table_layout(&self, table: &TableSchema, schema_hash: &str) -> io::Result<()> {
         let layout_key = (table.name().to_owned(), table.signature());
         if self
             .layout_cache
@@ -803,7 +1032,7 @@ impl LocalStore {
         }
         fs::create_dir_all(self.table_dir(table.name()))?;
         for path in six_files_in_read_order(&self.table_dir(table.name()))? {
-            verify_header(table, &path)?;
+            verify_header(table, schema_hash, &path)?;
         }
         self.layout_cache
             .write()
@@ -848,10 +1077,11 @@ impl LocalStore {
         fs::rename(tmp, self.metadata_path())
     }
 
-    fn scan_table_files(&self, table: &TableSchema) -> io::Result<TableScan> {
+    fn scan_table_files(&self, table: &TableSchema, schema_hash: &str) -> io::Result<TableScan> {
         let mut live = BTreeMap::new();
         let mut hash_bytes = Vec::new();
         for path in six_files_in_read_order(&self.table_dir(table.name()))? {
+            verify_header(table, schema_hash, &path)?;
             let chunk_name = relative_chunk_name(&self.table_dir(table.name()), &path)?;
             let entries = scan_six_file(table, &path, &chunk_name)?;
             for entry in entries {
@@ -881,9 +1111,10 @@ impl LocalStore {
         })
     }
 
-    fn scan_table_source_hash(&self, table: &TableSchema) -> io::Result<String> {
+    fn scan_table_source_hash(&self, table: &TableSchema, schema_hash: &str) -> io::Result<String> {
         let mut hash_bytes = Vec::new();
         for path in six_files_in_read_order(&self.table_dir(table.name()))? {
+            verify_header(table, schema_hash, &path)?;
             let chunk_name = relative_chunk_name(&self.table_dir(table.name()), &path)?;
             for line in raw_six_data_lines(table, &path)? {
                 hash_bytes.extend_from_slice(chunk_name.as_bytes());
@@ -947,7 +1178,6 @@ impl LocalStore {
             .lock()
             .map_err(|_| io::Error::other("table writer lock poisoned"))?;
         self.ensure_table_layout(table, &schema.schema_hash())?;
-
         let mut cache = self.take_runtime_sixb_for_write(schema, table.name())?;
         let tx_start = self.next_tx_id()?;
         let mut encoded = Vec::with_capacity(batch.operations().len());
@@ -1056,10 +1286,12 @@ impl LocalStore {
                 .create_new(true)
                 .open(&target.path)?;
             file.write_all(&append_bytes)?;
+            file.sync_data()?;
             self.remember_chunk(table.name(), &target.chunk_name, append_bytes)?;
         } else {
             let mut file = OpenOptions::new().append(true).open(&target.path)?;
             file.write_all(&append_bytes)?;
+            file.sync_data()?;
             self.set_chunk_len(
                 table.name(),
                 &target.chunk_name,
@@ -1131,9 +1363,79 @@ impl LocalStore {
         })
     }
 
+    fn truncate_incomplete_tail(&self, table_name: &str) -> io::Result<()> {
+        let Some(path) = six_files_in_read_order(&self.table_dir(table_name))?
+            .into_iter()
+            .next_back()
+        else {
+            return Ok(());
+        };
+        let bytes = fs::read(&path)?;
+        if bytes.is_empty() || bytes.ends_with(b"\n") {
+            return Ok(());
+        }
+        let complete_len = bytes
+            .iter()
+            .rposition(|byte| *byte == b'\n')
+            .map_or(0, |index| index + 1);
+        let file = OpenOptions::new().write(true).open(&path)?;
+        file.set_len(complete_len as u64)?;
+        file.sync_data()?;
+        let chunk_name = relative_chunk_name(&self.table_dir(table_name), &path)?;
+        self.forget_chunk(table_name, &chunk_name)?;
+        self.set_chunk_len(table_name, &chunk_name, complete_len as u64)
+    }
+
+    fn ensure_complete_tail(&self, table_name: &str) -> io::Result<()> {
+        let Some(path) = six_files_in_read_order(&self.table_dir(table_name))?
+            .into_iter()
+            .next_back()
+        else {
+            return Ok(());
+        };
+        let mut file = File::open(&path)?;
+        if file.metadata()?.len() == 0 {
+            return Ok(());
+        }
+        file.seek(SeekFrom::End(-1))?;
+        let mut last = [0u8; 1];
+        file.read_exact(&mut last)?;
+        if last[0] == b'\n' {
+            return Ok(());
+        }
+        Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("incomplete .6 tail in clean workspace: {}", path.display()),
+        ))
+    }
+
+    fn prepare_workspace_for_write(
+        &self,
+        schema: &DatabaseSchema,
+        target_table: &str,
+        recovering_dirty_workspace: bool,
+    ) -> io::Result<()> {
+        let schema_hash = schema.schema_hash();
+        if recovering_dirty_workspace {
+            for table in schema.tables().values() {
+                self.ensure_table_layout(table, &schema_hash)?;
+                self.truncate_incomplete_tail(table.name())?;
+            }
+            self.invalidate_cached_state()?;
+        } else {
+            let table = schema
+                .table(target_table)
+                .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "unknown table"))?;
+            self.ensure_table_layout(table, &schema_hash)?;
+            self.ensure_complete_tail(table.name())?;
+        }
+        Ok(())
+    }
+
     fn write_sixb_cache(&self, table_name: &str, cache: &SixbCache) -> io::Result<Arc<SixbCache>> {
         let path = self.sixb_path(table_name);
-        let tmp = path.with_extension("sixb.tmp");
+        let counter = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let tmp = path.with_extension(format!("sixb.tmp-{}-{counter}", std::process::id()));
         fs::write(&tmp, encode_sixb_cache(cache))?;
         fs::rename(tmp, path)?;
         self.remember_sixb_cache(cache.clone())
@@ -1186,6 +1488,7 @@ impl LocalStore {
         Ok(())
     }
 
+    #[cfg(feature = "experimental-compaction")]
     fn forget_table_chunks(&self, table_name: &str) -> io::Result<()> {
         self.chunk_cache
             .write()
@@ -1396,6 +1699,7 @@ impl LocalStore {
         Ok(())
     }
 
+    #[cfg(feature = "experimental-compaction")]
     fn forget_runtime_sixb_cache(&self, table_name: &str) -> io::Result<()> {
         self.runtime_sixb_cache
             .write()
@@ -1758,19 +2062,28 @@ impl RuntimeSixb {
     }
 }
 
-fn verify_header(table: &TableSchema, path: &Path) -> io::Result<()> {
+fn verify_header(table: &TableSchema, schema_hash: &str, path: &Path) -> io::Result<()> {
     let file = File::open(path)?;
     let mut reader = BufReader::new(file);
     let mut header = String::new();
     reader.read_line(&mut header)?;
     let actual = header.trim_end_matches(['\r', '\n']);
-    let expected = encode_six_header(table);
-    if actual == expected || is_six_magic_line(actual) {
+    let legacy_header = encode_six_header(table);
+    let expected_preamble = encode_six_preamble(table, schema_hash);
+    let expected_magic = expected_preamble.lines().next().unwrap_or_default();
+    let expected_parts = expected_magic.split('\t').collect::<Vec<_>>();
+    let actual_parts = actual.split('\t').collect::<Vec<_>>();
+    let valid_magic = actual_parts.len() == 5
+        && expected_parts.len() == 5
+        && actual_parts[..4] == expected_parts[..4]
+        && actual_parts[4].len() == 16
+        && actual_parts[4].bytes().all(|byte| byte.is_ascii_hexdigit());
+    if actual == legacy_header || valid_magic {
         Ok(())
     } else {
         Err(io::Error::new(
             io::ErrorKind::InvalidData,
-            format!("expected .6 header `{expected}`, found `{actual}`"),
+            format!("expected .6 header `{legacy_header}` or `{expected_magic}`, found `{actual}`"),
         ))
     }
 }
@@ -1802,6 +2115,9 @@ fn scan_six_file(
             break;
         }
         offset += len as u64;
+        if !line.ends_with('\n') {
+            break;
+        }
         let trimmed = line.trim_end_matches(['\r', '\n']);
         if trimmed.is_empty() {
             continue;
@@ -1837,12 +2153,16 @@ fn scan_six_file(
 
 fn raw_six_data_lines(table: &TableSchema, path: &Path) -> io::Result<Vec<Vec<u8>>> {
     let file = File::open(path)?;
-    let reader = BufReader::new(file);
+    let mut reader = BufReader::new(file);
     let mut out = Vec::new();
     let header = encode_six_header(table);
 
-    for line in reader.lines() {
-        let mut line = line?;
+    loop {
+        let mut line = String::new();
+        let len = reader.read_line(&mut line)?;
+        if len == 0 || !line.ends_with('\n') {
+            break;
+        }
         let trimmed = line.trim_end_matches(['\r', '\n']);
         if trimmed.is_empty()
             || is_six_magic_line(trimmed)
@@ -1851,7 +2171,6 @@ fn raw_six_data_lines(table: &TableSchema, path: &Path) -> io::Result<Vec<Vec<u8
         {
             continue;
         }
-        line.push('\n');
         out.push(line.into_bytes());
     }
     Ok(out)
@@ -1859,11 +2178,15 @@ fn raw_six_data_lines(table: &TableSchema, path: &Path) -> io::Result<Vec<Vec<u8
 
 fn max_tx_in_six_file(path: &Path) -> io::Result<u64> {
     let file = File::open(path)?;
-    let reader = BufReader::new(file);
+    let mut reader = BufReader::new(file);
     let mut max_tx = 0u64;
 
-    for line in reader.lines() {
-        let line = line?;
+    loop {
+        let mut line = String::new();
+        let len = reader.read_line(&mut line)?;
+        if len == 0 || !line.ends_with('\n') {
+            break;
+        }
         let trimmed = line.trim_end_matches(['\r', '\n']);
         if !(trimmed.starts_with("R\t") || trimmed.starts_with("D\t")) {
             continue;
@@ -2126,7 +2449,11 @@ fn extend_source_hash(current: &str, bytes: &[u8]) -> io::Result<String> {
 mod tests {
     use super::*;
     use sixpack_core::{DatabaseSchema, PrimitiveType};
+    use std::collections::BTreeSet;
+    use std::process::Command;
     use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::{Arc, Barrier};
+    use std::thread;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -2156,6 +2483,494 @@ mod tests {
         messages.add_lookup("created_at", false).unwrap();
         schema.add_table(messages).unwrap();
         schema
+    }
+
+    fn concurrent_schema() -> DatabaseSchema {
+        let mut schema = DatabaseSchema::new();
+        for table_name in ["messages", "conversations"] {
+            let mut table = TableSchema::new(table_name);
+            table.add_field("id", PrimitiveType::Id).unwrap();
+            table.add_field("body", PrimitiveType::Text).unwrap();
+            schema.add_table(table).unwrap();
+        }
+        schema
+    }
+
+    fn simple_record(table: &str, id: String) -> Record {
+        Record::new(table)
+            .with_id(id.clone())
+            .unwrap()
+            .with_field("body", format!("body for {id}"))
+            .unwrap()
+    }
+
+    fn transaction_ids(store: &LocalStore, table: &str) -> Vec<u64> {
+        let mut ids = Vec::new();
+        for path in six_files_in_read_order(&store.table_dir(table)).unwrap() {
+            for line in fs::read_to_string(path).unwrap().lines() {
+                if line.starts_with("R\t") || line.starts_with("D\t") {
+                    ids.push(line.split('\t').nth(1).unwrap().parse().unwrap());
+                }
+            }
+        }
+        ids
+    }
+
+    #[test]
+    fn separate_handles_refresh_after_each_others_writes() {
+        let root = temp_root("separate-handles");
+        let schema = concurrent_schema();
+        let first = LocalStore::new(&root, "db");
+        let second = LocalStore::new(&root, "db");
+        first.init(&schema).unwrap();
+
+        first
+            .append_put(&schema, &simple_record("messages", "m1".to_owned()))
+            .unwrap();
+        assert_eq!(second.count_table(&schema, "messages").unwrap(), 1);
+
+        first
+            .append_put(&schema, &simple_record("messages", "m2".to_owned()))
+            .unwrap();
+        assert_eq!(second.count_table(&schema, "messages").unwrap(), 2);
+        assert!(
+            second
+                .get_by_id(&schema, "messages", "m2")
+                .unwrap()
+                .is_some()
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn separate_handles_read_consistent_snapshots_while_another_writes() {
+        let root = temp_root("read-while-write");
+        let schema = Arc::new(concurrent_schema());
+        let writer = LocalStore::new(&root, "db");
+        let reader = LocalStore::new(&root, "db");
+        writer.init(&schema).unwrap();
+        let barrier = Arc::new(Barrier::new(2));
+
+        let writer_thread = {
+            let schema = Arc::clone(&schema);
+            let barrier = Arc::clone(&barrier);
+            thread::spawn(move || {
+                barrier.wait();
+                for index in 0..50 {
+                    writer
+                        .append_put(&schema, &simple_record("messages", format!("m-{index:04}")))
+                        .unwrap();
+                }
+            })
+        };
+
+        barrier.wait();
+        let mut previous = 0;
+        for _ in 0..10_000 {
+            let count = reader.count_table(&schema, "messages").unwrap();
+            assert!(count >= previous);
+            let rows = reader.read_table(&schema, "messages").unwrap();
+            assert!(rows.len() >= count);
+            previous = count;
+            if rows.len() == 50 {
+                previous = rows.len();
+                break;
+            }
+            thread::yield_now();
+        }
+        writer_thread.join().unwrap();
+        assert_eq!(previous, 50);
+        assert_eq!(reader.count_table(&schema, "messages").unwrap(), 50);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn cloned_handle_serializes_cross_table_writes() {
+        let root = temp_root("cross-table-threads");
+        let schema = Arc::new(concurrent_schema());
+        let store = LocalStore::new(&root, "db");
+        store.init(&schema).unwrap();
+        let barrier = Arc::new(Barrier::new(2));
+
+        let workers = ["messages", "conversations"].map(|table| {
+            let schema = Arc::clone(&schema);
+            let store = store.clone();
+            let barrier = Arc::clone(&barrier);
+            thread::spawn(move || {
+                barrier.wait();
+                (0..40)
+                    .map(|index| {
+                        store
+                            .append_put(
+                                &schema,
+                                &simple_record(table, format!("{table}-{index:04}")),
+                            )
+                            .unwrap()
+                            .tx_id
+                    })
+                    .collect::<Vec<_>>()
+            })
+        });
+
+        let tx_ids = workers
+            .into_iter()
+            .flat_map(|worker| worker.join().unwrap())
+            .collect::<BTreeSet<_>>();
+        assert_eq!(tx_ids.len(), 80);
+        assert_eq!(store.count_table(&schema, "messages").unwrap(), 40);
+        assert_eq!(store.count_table(&schema, "conversations").unwrap(), 40);
+
+        let reopened = LocalStore::new(&root, "db");
+        assert_eq!(reopened.count_table(&schema, "messages").unwrap(), 40);
+        assert_eq!(reopened.count_table(&schema, "conversations").unwrap(), 40);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn dirty_revision_discards_an_incomplete_tail_before_the_next_write() {
+        let root = temp_root("incomplete-tail");
+        let schema = concurrent_schema();
+        let store = LocalStore::new(&root, "db");
+        store.init(&schema).unwrap();
+        store
+            .append_put(&schema, &simple_record("messages", "m1".to_owned()))
+            .unwrap();
+
+        let chunk = store.chunk_six_path("messages", 0).unwrap();
+        let mut file = OpenOptions::new().append(true).open(&chunk).unwrap();
+        file.write_all(b"R\t2\tm2\tpartial body").unwrap();
+        file.sync_data().unwrap();
+        fs::write(store.revision_path(), u64::MAX.to_string()).unwrap();
+
+        let recovered = LocalStore::new(&root, "db");
+        assert_eq!(recovered.count_table(&schema, "messages").unwrap(), 1);
+        let result = recovered
+            .append_put(&schema, &simple_record("messages", "m2".to_owned()))
+            .unwrap();
+        assert_eq!(result.tx_id, 2);
+        assert_eq!(recovered.count_table(&schema, "messages").unwrap(), 2);
+        let bytes = fs::read_to_string(chunk).unwrap();
+        assert!(!bytes.contains("partial body"));
+
+        let reopened = LocalStore::new(&root, "db");
+        assert_eq!(reopened.count_table(&schema, "messages").unwrap(), 2);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn dirty_revision_recovers_an_incomplete_tail_before_a_cross_table_write() {
+        let root = temp_root("cross-table-recovery");
+        let schema = concurrent_schema();
+        let store = LocalStore::new(&root, "db");
+        store.init(&schema).unwrap();
+        store
+            .append_put(&schema, &simple_record("messages", "m1".to_owned()))
+            .unwrap();
+
+        let message_chunk = store.chunk_six_path("messages", 0).unwrap();
+        let mut file = OpenOptions::new()
+            .append(true)
+            .open(&message_chunk)
+            .unwrap();
+        file.write_all(b"R\t2\tm2\tpartial body").unwrap();
+        file.sync_data().unwrap();
+        fs::write(store.revision_path(), u64::MAX.to_string()).unwrap();
+
+        let recovered = LocalStore::new(&root, "db");
+        let result = recovered
+            .append_put(&schema, &simple_record("conversations", "c1".to_owned()))
+            .unwrap();
+        assert_eq!(result.tx_id, 2);
+        assert_eq!(recovered.current_revision().unwrap(), 3);
+        assert_eq!(recovered.count_table(&schema, "messages").unwrap(), 1);
+        assert_eq!(recovered.count_table(&schema, "conversations").unwrap(), 1);
+        assert!(
+            !fs::read_to_string(message_chunk)
+                .unwrap()
+                .contains("partial body")
+        );
+
+        let cold = LocalStore::new(&root, "db");
+        assert_eq!(cold.count_table(&schema, "messages").unwrap(), 1);
+        assert_eq!(cold.count_table(&schema, "conversations").unwrap(), 1);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn clean_workspace_rejects_an_unexpected_incomplete_tail_without_mutating_it() {
+        let root = temp_root("clean-incomplete-tail");
+        let schema = concurrent_schema();
+        let store = LocalStore::new(&root, "db");
+        store.init(&schema).unwrap();
+        store
+            .append_put(&schema, &simple_record("messages", "m1".to_owned()))
+            .unwrap();
+
+        let chunk = store.chunk_six_path("messages", 0).unwrap();
+        let mut file = OpenOptions::new().append(true).open(&chunk).unwrap();
+        file.write_all(b"unexpected partial data").unwrap();
+        file.sync_data().unwrap();
+        let before = fs::read(&chunk).unwrap();
+        let revision_before = fs::read_to_string(store.revision_path()).unwrap();
+
+        let cold = LocalStore::new(&root, "db");
+        let error = cold
+            .append_put(&schema, &simple_record("messages", "m2".to_owned()))
+            .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(error.to_string().contains("incomplete .6 tail"));
+        assert_eq!(fs::read(&chunk).unwrap(), before);
+        assert_eq!(
+            fs::read_to_string(store.revision_path()).unwrap(),
+            revision_before
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn corrupt_generated_cache_is_rebuilt_from_canonical_rows() {
+        let root = temp_root("corrupt-sixb");
+        let schema = concurrent_schema();
+        let store = LocalStore::new(&root, "db");
+        store.init(&schema).unwrap();
+        store
+            .append_put(&schema, &simple_record("messages", "m1".to_owned()))
+            .unwrap();
+        fs::write(store.sixb_path("messages"), b"not a sixb cache").unwrap();
+
+        let cold = LocalStore::new(&root, "db");
+        let row = cold.get_by_id(&schema, "messages", "m1").unwrap().unwrap();
+        assert_eq!(record_id(&row).unwrap(), "m1");
+        assert!(decode_sixb_cache(&fs::read(store.sixb_path("messages")).unwrap()).is_ok());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn corrupt_complete_canonical_row_fails_loudly() {
+        let root = temp_root("corrupt-canonical-row");
+        let schema = concurrent_schema();
+        let store = LocalStore::new(&root, "db");
+        store.init(&schema).unwrap();
+        store
+            .append_put(&schema, &simple_record("messages", "m1".to_owned()))
+            .unwrap();
+        let chunk = store.chunk_six_path("messages", 0).unwrap();
+        let mut file = OpenOptions::new().append(true).open(&chunk).unwrap();
+        file.write_all(b"R\t2\tmissing-body-column\n").unwrap();
+        file.sync_data().unwrap();
+
+        let cold = LocalStore::new(&root, "db");
+        let error = cold.count_table(&schema, "messages").unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(error.to_string().contains("column count"));
+        assert!(
+            fs::read_to_string(chunk)
+                .unwrap()
+                .contains("missing-body-column")
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn mismatched_canonical_header_fails_loudly() {
+        let root = temp_root("mismatched-header");
+        let schema = concurrent_schema();
+        let store = LocalStore::new(&root, "db");
+        store.init(&schema).unwrap();
+        store
+            .append_put(&schema, &simple_record("messages", "m1".to_owned()))
+            .unwrap();
+        let chunk = store.chunk_six_path("messages", 0).unwrap();
+        let contents = fs::read_to_string(&chunk).unwrap();
+        let (_, body) = contents.split_once('\n').unwrap();
+        fs::write(&chunk, format!("SIX\t1\ttable\tother\tdeadbeef\n{body}")).unwrap();
+
+        let cold = LocalStore::new(&root, "db");
+        let error = cold.count_table(&schema, "messages").unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(error.to_string().contains("expected .6 header"));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn corrupt_revision_marker_blocks_access_without_touching_canonical_data() {
+        let root = temp_root("corrupt-revision");
+        let schema = concurrent_schema();
+        let store = LocalStore::new(&root, "db");
+        store.init(&schema).unwrap();
+        store
+            .append_put(&schema, &simple_record("messages", "m1".to_owned()))
+            .unwrap();
+        let chunk = store.chunk_six_path("messages", 0).unwrap();
+        let before = fs::read(&chunk).unwrap();
+        fs::write(store.revision_path(), b"not-a-revision").unwrap();
+
+        let cold = LocalStore::new(&root, "db");
+        let error = cold.count_table(&schema, "messages").unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(error.to_string().contains("bad workspace revision"));
+        assert_eq!(fs::read(chunk).unwrap(), before);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn missing_metadata_recovers_transaction_ids_from_canonical_rows() {
+        let root = temp_root("missing-metadata");
+        let schema = concurrent_schema();
+        let store = LocalStore::new(&root, "db");
+        store.init(&schema).unwrap();
+        for index in 1..=3 {
+            store
+                .append_put(&schema, &simple_record("messages", format!("m{index}")))
+                .unwrap();
+        }
+        fs::remove_file(store.metadata_path()).unwrap();
+
+        let cold = LocalStore::new(&root, "db");
+        let result = cold
+            .append_put(&schema, &simple_record("messages", "m4".to_owned()))
+            .unwrap();
+        assert_eq!(result.tx_id, 4);
+        assert_eq!(cold.count_table(&schema, "messages").unwrap(), 4);
+        assert!(cold.metadata_path().exists());
+        assert_eq!(LocalStore::new(&root, "db").next_tx_id().unwrap(), 5);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn corrupt_metadata_counter_blocks_a_write_without_appending_a_row() {
+        let root = temp_root("corrupt-metadata");
+        let schema = concurrent_schema();
+        let store = LocalStore::new(&root, "db");
+        store.init(&schema).unwrap();
+        store
+            .append_put(&schema, &simple_record("messages", "m1".to_owned()))
+            .unwrap();
+        let chunk = store.chunk_six_path("messages", 0).unwrap();
+        let before = fs::read(&chunk).unwrap();
+        let metadata = fs::read_to_string(store.metadata_path()).unwrap();
+        fs::write(
+            store.metadata_path(),
+            metadata.replace("next_tx = 1", "next_tx = broken"),
+        )
+        .unwrap();
+
+        let cold = LocalStore::new(&root, "db");
+        let error = cold
+            .append_put(&schema, &simple_record("messages", "m2".to_owned()))
+            .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(error.to_string().contains("bad next_tx"));
+        assert_eq!(fs::read(chunk).unwrap(), before);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn two_process_writes_are_serialized_and_recoverable() {
+        let root = temp_root("two-processes");
+        let schema = concurrent_schema();
+        let store = LocalStore::new(&root, "db");
+        store.init(&schema).unwrap();
+        let start = root.join("start");
+        let executable = std::env::current_exe().unwrap();
+
+        let mut children = ["messages", "conversations"].map(|table| {
+            Command::new(&executable)
+                .arg("--exact")
+                .arg("tests::two_process_writer_child")
+                .env("SIXPACK_PROCESS_TEST_ROOT", &root)
+                .env("SIXPACK_PROCESS_TEST_TABLE", table)
+                .spawn()
+                .unwrap()
+        });
+        fs::write(&start, b"go").unwrap();
+        for child in &mut children {
+            assert!(child.wait().unwrap().success());
+        }
+
+        assert_eq!(store.count_table(&schema, "messages").unwrap(), 40);
+        assert_eq!(store.count_table(&schema, "conversations").unwrap(), 40);
+        let tx_ids = ["messages", "conversations"]
+            .into_iter()
+            .flat_map(|table| transaction_ids(&store, table))
+            .collect::<BTreeSet<_>>();
+        assert_eq!(tx_ids.len(), 80);
+        assert_eq!(tx_ids.first(), Some(&1));
+        assert_eq!(tx_ids.last(), Some(&80));
+        assert_eq!(store.current_revision().unwrap(), 81);
+
+        let reopened = LocalStore::new(&root, "db");
+        assert_eq!(reopened.count_table(&schema, "messages").unwrap(), 40);
+        assert_eq!(reopened.count_table(&schema, "conversations").unwrap(), 40);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn two_processes_can_write_the_same_chat_table_without_lost_rows() {
+        let root = temp_root("two-processes-same-table");
+        let schema = concurrent_schema();
+        let store = LocalStore::new(&root, "db");
+        store.init(&schema).unwrap();
+        let start = root.join("start");
+        let executable = std::env::current_exe().unwrap();
+
+        let mut children = ["agent-a", "agent-b"].map(|prefix| {
+            Command::new(&executable)
+                .arg("--exact")
+                .arg("tests::two_process_writer_child")
+                .env("SIXPACK_PROCESS_TEST_ROOT", &root)
+                .env("SIXPACK_PROCESS_TEST_TABLE", "messages")
+                .env("SIXPACK_PROCESS_TEST_PREFIX", prefix)
+                .spawn()
+                .unwrap()
+        });
+        fs::write(&start, b"go").unwrap();
+        for child in &mut children {
+            assert!(child.wait().unwrap().success());
+        }
+
+        assert_eq!(store.count_table(&schema, "messages").unwrap(), 80);
+        let tx_ids = transaction_ids(&store, "messages")
+            .into_iter()
+            .collect::<BTreeSet<_>>();
+        assert_eq!(tx_ids.len(), 80);
+        assert_eq!(tx_ids.first(), Some(&1));
+        assert_eq!(tx_ids.last(), Some(&80));
+        for prefix in ["agent-a", "agent-b"] {
+            for index in 0..40 {
+                let id = format!("{prefix}-{index:04}");
+                assert!(store.get_by_id(&schema, "messages", &id).unwrap().is_some());
+            }
+        }
+
+        let cold = LocalStore::new(&root, "db");
+        assert_eq!(cold.count_table(&schema, "messages").unwrap(), 80);
+        assert_eq!(cold.current_revision().unwrap(), 81);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn two_process_writer_child() {
+        let Ok(root) = std::env::var("SIXPACK_PROCESS_TEST_ROOT") else {
+            return;
+        };
+        let table = std::env::var("SIXPACK_PROCESS_TEST_TABLE").unwrap();
+        let prefix = std::env::var("SIXPACK_PROCESS_TEST_PREFIX").unwrap_or_else(|_| table.clone());
+        let root = PathBuf::from(root);
+        while !root.join("start").exists() {
+            thread::yield_now();
+        }
+        let schema = concurrent_schema();
+        let store = LocalStore::new(&root, "db");
+        for index in 0..40 {
+            store
+                .append_put(
+                    &schema,
+                    &simple_record(&table, format!("{prefix}-{index:04}")),
+                )
+                .unwrap();
+        }
     }
 
     #[test]
@@ -2220,6 +3035,7 @@ mod tests {
         let _ = fs::remove_dir_all(root);
     }
 
+    #[cfg(feature = "experimental-compaction")]
     #[test]
     fn compact_table_rewrites_live_rows_and_rebuilds_cache() {
         let root = temp_root("compact");

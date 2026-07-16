@@ -25,33 +25,38 @@ database with typed primitive fields, declared lookups, fast append writes,
 rebuildable indexes, and a public API centered on `get`, `write`, and
 `write_many`.
 
+> `0.0.1` is an application-testing release. The supported safety
+> profile is two low-traffic processes on one local filesystem. Multi-host and
+> network-filesystem access are out of scope.
+
+Building an assistant? Start with the executable
+[AI chat and notes guide](packages/docs/ai-chat-notes.md).
+
 ## The Shape
 
 sixpack is built around the idea that the database API should look like the
 application's own data model:
 
 ```rust
-sixpack::schema! {
-    messages {
-        id id
-        conversation_id id
-        body text
+include!(concat!(env!("OUT_DIR"), "/sixpack_schema.rs"));
+use sixpack_generated_schema as sdk;
 
-        lookup conversation_id many
-    }
-}
-
-db.write(messages::add(messages::Row {
+db.write(sdk::messages::add(sdk::messages::Row {
     id: "m1".to_owned(),
     conversation_id: "cv1".to_owned(),
+    role: "assistant".to_owned(),
     body: "typed local state".to_owned(),
+    status: "completed".to_owned(),
+    model: "example-model".to_owned(),
+    created_at: 1,
+    sequence: 1,
 }))?;
 
-let thread = db.get(messages::by::conversation_id("cv1"))?;
+let thread = db.get(sdk::messages::by::conversation_id("cv1"))?;
 
 db.write_many(&[
-    messages::edit(messages::key::id("m1"), patch),
-    messages::remove(messages::key::id("m2")),
+    sdk::messages::edit(sdk::messages::key::id("m1"), patch),
+    sdk::messages::remove(sdk::messages::key::id("m2")),
 ])?;
 ```
 
@@ -122,6 +127,10 @@ Implemented today:
 - `db.get(...)`, `db.write(...)`, and `db.write_many(...)`
 - same-table batched writes
 - recoverable metadata counters
+- workspace-wide read/write coordination for low-traffic multi-process access
+- revision-based cache invalidation across independently opened handles
+- synced canonical commits and incomplete-tail recovery
+- paged lookup reads for conversation histories
 - schema compiler parser, validator, and raw Rust output
 - cached generated schema accessors for compiled APIs
 - CLI help/version surface
@@ -132,7 +141,7 @@ Planned or incomplete:
 - repair/inspect CLI
 - admin UI
 - `.6x` full-text search
-- compaction and segment sealing
+- crash-hardened compaction and segment sealing
 - stable generated API snapshots
 
 ## API Shape
@@ -145,6 +154,37 @@ db.watch(selector)     planned live subscription
 db.write(change)       apply one declared change
 db.write_many(changes) apply one-table changes as a storage batch
 ```
+
+For local applications with a few access points, independently opened handles
+coordinate through `engine/workspace.lock`. Reads may run together; canonical
+writes, initialization, cache rebuilds, and compaction take the workspace write
+lock. An `engine/revision` commit marker invalidates stale in-process caches
+after another process commits. The tested operating profile is two low-traffic
+processes on the same local filesystem. Network filesystems and multi-host
+access are not supported.
+
+## Safety Defaults and Feature Flags
+
+Normal builds use the safety-first path without configuration:
+
+- shared/exclusive workspace coordination across local processes
+- synced canonical `.6` commits
+- dirty/clean revision publication
+- stale-cache invalidation in independently opened handles
+- cross-table incomplete final-row recovery after an interrupted commit
+- fail-closed handling for unexpected clean tails and corrupt canonical metadata
+
+Table compaction is maintenance functionality and is intentionally excluded
+from the default public API in this alpha. Test-lab applications can opt into
+it explicitly:
+
+```toml
+sixpack = { git = "https://github.com/memoirlabs/sixpack", tag = "v0.0.1", features = ["experimental-compaction"] }
+```
+
+An application storing normal chat messages does not need this feature. There
+is no unsafe fast-write flag: stream tokens through the application transport,
+then durably commit completed messages or small same-table batches.
 
 The low-level runtime helpers are available today:
 
@@ -188,33 +228,62 @@ db.write_many(&[
 The generated API is the target ergonomic layer:
 
 ```rust
-sixpack::schema! {
-    messages {
-        id id
-        conversation_id id
-        body text
+include!(concat!(env!("OUT_DIR"), "/sixpack_schema.rs"));
+use sixpack_generated_schema as sdk;
 
-        lookup conversation_id many
-    }
-}
-
-db.write(messages::add(messages::Row {
+db.write(sdk::messages::add(sdk::messages::Row {
     id: "m1".to_owned(),
     conversation_id: "cv1".to_owned(),
+    role: "assistant".to_owned(),
     body: "typed local state".to_owned(),
+    status: "completed".to_owned(),
+    model: "example-model".to_owned(),
+    created_at: 1,
+    sequence: 1,
 }))?;
 
-let thread = db.get(messages::by::conversation_id("cv1"))?;
+let (thread, next_cursor) = db.get(
+    sdk::messages::by::conversation_id("cv1").page(100),
+)?;
 ```
+
+The build-time schema compiler emits the typed SDK; the lightweight
+`sixpack::schema!` macro only builds runtime schema metadata. See the
+[AI chat and notes guide](packages/docs/ai-chat-notes.md) for the complete
+`Cargo.toml`, `build.rs`, schema, streaming lifecycle, retries, pagination, and
+two-process operating contract.
+
+Chat data is table-oriented, not one file per conversation. Conversation rows
+share the size-based chunks under `tables/conversations/*.6`; message rows for
+all conversations share `tables/messages/*.6` and carry `conversation_id` as a
+normal indexed field:
+
+Simplified row view:
+
+```txt
+tables/conversations/zzz.6
+R  1  c1  u1  First chat
+R  2  c2  u2  Second chat
+
+tables/messages/zzz.6
+R  3  m1  c1  user       hello  1
+R  4  m2  c2  user       hi     2
+R  5  m3  c1  assistant  ...    3
+```
+
+The real separator is a tab. Tabs, newlines, backslashes, and carriage returns
+inside values are escaped, so every operation remains one physical line.
+Chunks roll over at the table size boundary; they are never named after or
+partitioned by conversation.
 
 ## Performance Snapshot
 
-Benchmarks compare sixpack's current local storage path against SQLite baselines
-for the same table shape. The hot-path benchmark preloads 10,000 rows once,
-keeps the database handle open, then measures 1,000 operations per Criterion
-iteration. Read/count cases stay fixed-size; write cases keep mutating the same
-live handle so they measure ongoing append/update behavior instead of database
-regeneration.
+Benchmarks compare sixpack's coordinated local storage path against SQLite
+baselines for the same table shape. The hot-path benchmark preloads 10,000 rows
+once and keeps the database handle open. Read/count cases measure 1,000
+operations per Criterion iteration. Durable write cases measure 10 operations
+per iteration because every sixpack commit takes the workspace lock, syncs the
+canonical `.6` append, and atomically publishes a revision marker.
 
 ```sh
 RUSTFLAGS='-C target-cpu=native' \
@@ -224,21 +293,21 @@ RUSTFLAGS='-C target-cpu=native' \
 
 | Operation, live DB | sixpack | SQLite | What is being measured |
 | --- | ---: | ---: | --- |
-| get by id, 10k rows, 1,000 ops | ~0.50 ms | ~3.19 ms | runtime `.6b` row pointer + row cache vs indexed select |
-| count, 10k rows, 1,000 ops | ~26 us | ~3.10 ms | runtime binary projection count vs `COUNT(*)` |
-| add one-by-one, starts at 10k rows, 1,000 ops | ~38.7 ms | ~301.1 ms | append `.6`, update runtime projection |
-| add batched, starts at 10k rows, 1,000 rows | ~4.28 ms | ~6.83 ms | one sixpack segment vs one SQLite transaction |
-| edit one-by-one, 10k live rows, 1,000 ops | ~38.8 ms | ~5.69 ms | append replacements, update runtime projection |
-| edit batched, 10k live rows, 1,000 rows | ~5.13 ms | ~0.52 ms | one sixpack patch batch vs one SQLite transaction |
+| get by id, 10k rows, 1,000 ops | ~31.6 ms | ~3.43 ms | coordinated hot-cache reads, about 32 us each |
+| count, 10k rows, 1,000 ops | ~29.9 ms | ~3.58 ms | coordinated cached counts, about 30 us each |
+| add one-by-one, starts at 10k rows, 10 ops | ~111.7 ms | ~3.19 ms | ten individually synced sixpack commits |
+| add batched, starts at 10k rows, 10 rows | ~12.2 ms | ~0.54 ms | one synced sixpack commit for ten rows |
+| edit one-by-one, 10k live rows, 10 ops | ~129.7 ms | ~0.13 ms | ten individually synced replacement commits |
+| edit batched, 10k live rows, 10 rows | ~13.1 ms | ~0.012 ms | one synced replacement batch |
 
-The useful result is specific: hot reads and counts are already served from
-binary generated state and are strong in this workload. Append batches are now
-competitive in this local path because sixpack writes one readable segment and
-updates a runtime projection map. SQLite transactions are still much faster for
-large update batches. The next engine target is to keep the readable `.6`
-source while reducing patch construction and row rewrite overhead, and to move
-private generated engine state toward one rebuildable `engine/state.6pack`
-pack.
+These numbers intentionally include local cross-process coordination and data
+sync costs on the benchmark filesystem. They fit a low-traffic chat or agent
+runtime—roughly 11–13 ms for an individual durable commit and about 30 us for a
+hot coordinated read—but are not suitable for persisting every streamed token
+as its own transaction. Buffer streamed output and commit completed messages or
+small same-table batches. SQLite remains substantially faster for transaction-
+heavy workloads. The next engine target is reducing coordination overhead while
+preserving the readable `.6` source and recoverable commit boundary.
 
 ## Repository Layout
 
@@ -267,6 +336,8 @@ Start with:
 
 - [Atlas](book/00-atlas.md)
 - [File layout](packages/docs/file-format.md)
+- [AI chat and notes guide](packages/docs/ai-chat-notes.md)
+- [Public API reference](packages/docs/api.md)
 - [Command surface](packages/docs/commands.md)
 - [Product shape](book/01-product-shape.md)
 - [Write engine](book/14-write-engine.md)

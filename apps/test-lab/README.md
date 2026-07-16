@@ -32,3 +32,6 @@ Supporting files:
   small and untouched when experimenting with richer database behavior.
 - `note-taking-playground/` for a real sixpack-backed notes UI playground with
   CRUD, polling, write/read timing, disk-size display, and compaction checks.
+- `ai-chat-notes/` for the executable typed-API contract covering chat
+  persistence, assistant completion, lookup pagination, note capture, retries,
+  independent handles, and cold reopen.

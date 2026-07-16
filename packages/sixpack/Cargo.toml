@@ -8,6 +8,10 @@ repository.workspace = true
 [lib]
 path = "src/lib.rs"
 
+[features]
+default = []
+experimental-compaction = ["sixpack-store/experimental-compaction"]
+
 [dependencies]
 sixpack-core.workspace = true
 sixpack-format.workspace = true

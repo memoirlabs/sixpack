@@ -156,6 +156,18 @@ db.get(messages::by::conversation_id(conversation_id))?;
 
 Non-unique lookups generate selectors that return many rows.
 
+For a paged lookup that preserves the next cursor:
+
+```rust
+let (rows, next_cursor) = db.get(
+    messages::by::conversation_id(conversation_id).page(100),
+)?;
+```
+
+The cursor is an offset over current live rows rather than a snapshot token.
+Lookup rows are ordered by id, so chat applications should choose sortable
+message ids and keep their own sequence field.
+
 ### Edit One Row
 
 SQLite:
