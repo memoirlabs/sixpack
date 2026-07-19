@@ -11,6 +11,7 @@ packages/sixpack-store
 packages/sixpack
 packages/sixpack-cli
 packages/sixpack-schema-compiler
+packages/sixpack-typescript
 packages/sixpack-testkit
 ```
 
@@ -71,6 +72,7 @@ Build-time schema compiler:
 - parse schema
 - validate schema
 - emit generated Rust
+- emit generated TypeScript
 
 It should not be required for runtime schema parsing.
 
@@ -79,6 +81,17 @@ It should not be required for runtime schema parsing.
 CLI command parsing and execution.
 
 Keep it small until the runtime contract is stable.
+
+### `sixpack-typescript`
+
+TypeScript-facing API:
+
+- typed database handle
+- generated table selectors and changes
+- exact TypeScript bigint conversion for Rust `i64` values
+- short-lived process bridge to the Rust engine
+
+It must not parse or write `.6`/`.6b` files itself.
 
 ## Preferred Future Rename
 

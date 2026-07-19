@@ -1,0 +1,31 @@
+{
+  "name": "@sixpack/db",
+  "version": "0.0.1",
+  "description": "Typed TypeScript client for the local sixpack database engine",
+  "license": "MIT",
+  "repository": "https://github.com/memoirlabs/sixpack",
+  "engines": {
+    "node": ">=18"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "pretest": "bun run build",
+    "test": "bun run test/e2e.ts",
+    "posttest": "node test/node-e2e.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^6.0.0"
+  }
+}

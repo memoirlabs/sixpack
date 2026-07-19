@@ -131,9 +131,10 @@ Implemented today:
 - revision-based cache invalidation across independently opened handles
 - synced canonical commits and incomplete-tail recovery
 - paged lookup reads for conversation histories
-- schema compiler parser, validator, and raw Rust output
+- schema compiler parser, validator, and generated Rust/TypeScript output
 - cached generated schema accessors for compiled APIs
-- CLI help/version surface
+- typed TypeScript `get`/`write`/`writeMany` API through the Rust engine
+- CLI help/version and TypeScript generation surface
 
 Planned or incomplete:
 
@@ -318,6 +319,7 @@ packages/sixpack-format          .6 and .6b encoding boundary
 packages/sixpack-store           local storage engine
 packages/sixpack-cli             CLI command surface
 packages/sixpack-schema-compiler schema! parser, validator, codegen
+packages/sixpack-typescript      typed TypeScript API and Rust bridge client
 packages/sixpack-testkit         shared test helpers
 apps/sixpack                     runnable CLI binary
 apps/test-lab                    isolated experiments and generated examples

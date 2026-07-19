@@ -9,6 +9,11 @@ The CLI is intentionally small while the runtime API and storage engine settle.
 
 - `sixpack --version` (or `sixpack -V`) - print the CLI version.
 - `sixpack help` (or `-h`, `--help`) - print usage.
+- `sixpack generate typescript <schema.sixpack>` - print a generated typed
+  TypeScript schema module for `@sixpack/db`.
+
+The TypeScript package also uses `sixpack bridge` internally. It is a transport
+implementation detail, not a normal command for application code.
 
 ## Planned Surface
 

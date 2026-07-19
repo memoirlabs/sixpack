@@ -68,16 +68,30 @@ This chapter is the honesty check.
 - emits patch builders
 - emits unique lookup keys
 - emits page/count selectors
+- emits typed TypeScript rows, selectors, keys, and changes
+
+### TypeScript
+
+- generated row types for all schema primitives
+- exact TypeScript `bigint` round trips for Rust `i64` values
+- checked `int64(...)` conversion from safe numbers and decimal strings
+- typed `get`, `write`, and `writeMany` calls
+- unique and non-unique lookup selectors
+- lookup/table pagination and counts
+- add, set, edit, and remove changes
+- short-lived Rust bridge execution against canonical `.6` storage
 
 ### CLI
 
 - help
 - version
+- TypeScript schema generation
+- internal TypeScript SDK bridge
 
 ## Not Implemented
 
 - stable generated API snapshots
-- CLI commands beyond help/version
+- CLI database maintenance commands
 - admin UI
 - `db.watch(selector)` live subscriptions
 - plan JSON serde

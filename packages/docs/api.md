@@ -217,6 +217,31 @@ pub enum PlanError {
 Errors are returned to the caller. The runtime does not silently delete
 canonical data to hide corruption.
 
+## TypeScript API
+
+Generate a typed module from the same schema used by Rust:
+
+```sh
+sixpack generate typescript schema.sixpack > sixpack-schema.ts
+```
+
+The `@sixpack/db` package exposes asynchronous `db.get(...)`, `db.write(...)`,
+and `db.writeMany(...)` calls over generated selectors and changes. Schema
+`int` fields are exact TypeScript `bigint` values matching Rust `i64`. The
+`int64(...)` helper converts ordinary safe numbers such as `Date.now()` or
+decimal strings while checking the signed 64-bit range. The current
+implementation starts a short-lived Rust bridge process for each operation; it
+does not reimplement `.6` storage in TypeScript.
+
+Generated rows are readonly snapshots. Generated types require complete rows
+for add/set, reject empty patches, keep unique keys attached to their table,
+and reject mixed-table `writeMany` calls at compile time. Runtime validation
+still enforces the same boundaries for untyped JavaScript callers.
+
+The TypeScript API currently supports unique and non-unique lookups, lookup
+and table pages, counts, add, set, edit, remove, and same-table batches. It does
+not implement `watch`.
+
 ## Maintenance API
 
 ```rust

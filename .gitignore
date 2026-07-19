@@ -2,6 +2,10 @@
 /target/
 **/target/
 
+# TypeScript package build output
+/packages/sixpack-typescript/dist/
+**/node_modules/
+
 # Local sixpack runtime data
 /.sixpack/
 **/.sixpack/

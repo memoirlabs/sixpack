@@ -22,6 +22,7 @@ The repository should continue toward these stable boundaries:
 - `packages/sixpack`: composed runtime API (the DB handle + public orchestration).
 - `packages/sixpack-cli`: CLI parsing/execution layer.
 - `packages/sixpack-schema-compiler`: schema compilation crate (`schema!` parsing, validation, and raw Rust output).
+- `packages/sixpack-typescript`: typed TypeScript client and generated schema API runtime.
 - `apps/sixpack`: runnable binary that wires startup and delegates to `sixpack-cli`.
 - `apps/admin-ui` (planned): local viewer/admin surface.
 - `apps/test-lab` (experimental): broader test environment for temporary experiments, fixtures, and benchmark checks.
@@ -42,6 +43,7 @@ Current code includes:
 - CLI surface currently documents only:
   - `sixpack --version`
   - `sixpack help`
+  - `sixpack generate typescript <schema.sixpack>`
 - Core behavior includes:
   - minimal schema primitives in `packages/sixpack-core`,
   - legacy JSONL event encoding/decoding helpers in `packages/sixpack-format`,
@@ -51,6 +53,9 @@ Current code includes:
   - `schema!` parser for importable schema snippets,
   - compile-time validation for naming/lookups/duplicates,
   - optional raw Rust row/table emission for generated APIs.
+  - typed TypeScript row/table emission for `@sixpack/db`.
+- TypeScript API in `packages/sixpack-typescript` with typed selectors, changes,
+  exact `bigint`/Rust `i64` values, and a short-lived Rust bridge transport.
 
 ## Temporary / Non-Authoritative Material
 
@@ -93,8 +98,10 @@ conflict with the book chapters, the book wins.
 - Do not claim “implemented” when a feature is only planned or stubbed.
 - Avoid speculative abstractions outside the existing boundary model.
 - Keep crate responsibilities aligned with the boundary list above.
-- CLI is currently a small command surface. Do not imply richer CLI behavior
-  until code and tests exist.
+- CLI is currently a small command surface. Do not imply commands beyond
+  help/version and TypeScript generation until code and tests exist. The
+  `bridge` command is an internal TypeScript SDK transport, not a normal user
+  command surface.
 - Keep one interactive behavior path out of scope until it is explicitly needed.
 - If a richer interactive command mode is added later, use terminal primitives via
   a maintained library like Ratatui for that narrow scope.
@@ -109,6 +116,7 @@ conflict with the book chapters, the book wins.
 - `packages/sixpack-cli` — CLI command behavior.
 - `packages/sixpack-testkit` — shared test helpers.
 - `packages/sixpack-schema-compiler` — schema parse/validate/codegen crate.
+- `packages/sixpack-typescript` — typed TypeScript API and Rust bridge client.
 - `tests/contracts` — contract tests.
 - `tests/snapshots` — reviewed snapshots.
 - `apps/test-lab` — broad experiment workspace (UI prototypes + fixtures + speed/sync checks), separate from shipped admin UI.
@@ -143,6 +151,15 @@ cargo fmt --all
 cargo check --workspace --all-targets
 cargo test --workspace --all-targets
 cargo clippy --workspace --all-targets -- -D warnings
+```
+
+When `packages/sixpack-typescript` changes, also run:
+
+```sh
+cd packages/sixpack-typescript
+bun install --frozen-lockfile
+bun run typecheck
+bun run test
 ```
 
 Equivalent `just` flow is optional:

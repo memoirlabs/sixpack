@@ -650,6 +650,12 @@ dependencies = [
 [[package]]
 name = "sixpack-cli"
 version = "0.0.1"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sixpack",
+ "sixpack-schema-compiler",
+]
 
 [[package]]
 name = "sixpack-core"

@@ -9,3 +9,7 @@ repository.workspace = true
 path = "src/lib.rs"
 
 [dependencies]
+serde.workspace = true
+serde_json.workspace = true
+sixpack.workspace = true
+sixpack-schema-compiler.workspace = true

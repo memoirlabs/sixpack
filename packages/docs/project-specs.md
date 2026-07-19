@@ -12,7 +12,7 @@ status pages, and archived reference material for sixpack.
 - [book/14-write-engine.md](../../book/14-write-engine.md) — canonical batch-first write engine outline.
 - [book/decisions/0001-generated-engine-state-pack.md](../../book/decisions/0001-generated-engine-state-pack.md) — accepted direction for collapsing generated engine state into one rebuildable pack.
 - [AGENTS.md](../../AGENTS.md) — working constraints for this repository and the source-of-truth model for implementation.
-- [packages/docs/commands.md](commands.md) — CLI contract (currently `--version` and `help`).
+- [packages/docs/commands.md](commands.md) — CLI contract for help/version and TypeScript schema generation.
 - [packages/docs/file-format.md](file-format.md) — `.6`, `.6b`, metadata, and local directory layout.
 - [packages/docs/ai-chat-notes.md](ai-chat-notes.md) — executable application contract for AI conversations, messages, notes, pagination, retries, streaming, and two-process use.
 - [packages/docs/api.md](api.md) — public `v0.0.1` generated/runtime API reference, return types, limits, errors, batching, and concurrency semantics.
@@ -24,6 +24,7 @@ status pages, and archived reference material for sixpack.
 - [apps/test-lab/README.md](../../apps/test-lab/README.md) — isolated experiments for generated examples, speed checks, fixtures, and UI prototypes.
 - [packages/sixpack-testkit/src/lib.rs](../sixpack-testkit/src/lib.rs) — shared test helper crate.
 - [packages/sixpack-schema-compiler/src/lib.rs](../sixpack-schema-compiler/src/lib.rs) — build-time schema parser/validator/output.
+- [packages/sixpack-typescript](../sixpack-typescript/README.md) — typed TypeScript API and bridge client.
 
 ## Archived Reference Material
 
