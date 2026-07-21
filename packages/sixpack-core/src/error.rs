@@ -4,6 +4,8 @@ use crate::value::PrimitiveType;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum SchemaError {
+    InvalidWorkspaceName(String),
+    InvalidTableName(String),
     ReservedFieldName(String),
     InvalidFieldName(String),
     UnknownTable(String),
@@ -51,6 +53,14 @@ impl SchemaError {
 impl fmt::Display for SchemaError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::InvalidWorkspaceName(name) => write!(
+                formatter,
+                "invalid workspace name `{name}`; use letters, digits, `-`, or `_`"
+            ),
+            Self::InvalidTableName(name) => write!(
+                formatter,
+                "invalid table name `{name}`; use lowercase snake_case"
+            ),
             Self::ReservedFieldName(field) => write!(
                 formatter,
                 "field name is reserved for internal storage metadata: {field}"
@@ -110,5 +120,5 @@ pub(crate) fn ensure_public_field_name(name: &str) -> Result<(), SchemaError> {
     if name.starts_with('_') {
         return Err(SchemaError::ReservedFieldName(name.to_owned()));
     }
-    Ok(())
+    crate::FieldName::new(name).map(|_| ())
 }

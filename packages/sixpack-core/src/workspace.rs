@@ -8,6 +8,11 @@ impl Workspace {
         Self { name: name.into() }
     }
 
+    pub fn try_new(name: impl Into<String>) -> Result<Self, crate::SchemaError> {
+        let name = crate::WorkspaceName::new(name)?;
+        Ok(Self::new(name.as_str()))
+    }
+
     pub fn name(&self) -> &str {
         &self.name
     }

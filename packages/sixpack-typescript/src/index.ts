@@ -141,6 +141,9 @@ export interface DatabaseOptions {
   readonly binaryPath?: string;
 }
 
+/** Alias matching the configuration terminology used in application code. */
+export type DatabaseConfig = DatabaseOptions;
+
 export interface WriteResult {
   readonly txId: bigint;
   readonly operation: "put" | "delete";

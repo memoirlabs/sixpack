@@ -12,6 +12,7 @@ sixpack = { workspace = true }
 [dev-dependencies]
 criterion = "0.5"
 rusqlite = { version = "0.32", features = ["bundled"] }
+serde_json.workspace = true
 tempfile = "3"
 
 [[bench]]
@@ -20,4 +21,12 @@ harness = false
 
 [[bench]]
 name = "hot_path"
+harness = false
+
+[[bench]]
+name = "cache_reopen"
+harness = false
+
+[[bench]]
+name = "agent_jsonl"
 harness = false

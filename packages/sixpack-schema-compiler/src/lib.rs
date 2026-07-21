@@ -407,12 +407,12 @@ pub fn emit_raw_rust(ir: &SchemaIr) -> String {
         out.push_str("        pub struct OneSelector {\n");
         out.push_str("            inner: sixpack::GetOne,\n");
         out.push_str("        }\n\n");
-        out.push_str("        impl sixpack::GetRequest for OneSelector {\n");
+        out.push_str("        impl sixpack::runtime::GetRequest for OneSelector {\n");
         out.push_str("            type Output = Option<Row>;\n\n");
-        out.push_str("            fn into_plan(self) -> Result<sixpack::PlanEnvelope, sixpack::DatabaseError> {\n");
+        out.push_str("            fn into_plan(self) -> Result<sixpack::runtime::PlanEnvelope, sixpack::DatabaseError> {\n");
         out.push_str("                Ok(self.inner.into_plan())\n");
         out.push_str("            }\n\n");
-        out.push_str("            fn from_outcome(outcome: sixpack::PlanOutcome) -> Result<Self::Output, sixpack::DatabaseError> {\n");
+        out.push_str("            fn from_outcome(outcome: sixpack::runtime::PlanOutcome) -> Result<Self::Output, sixpack::DatabaseError> {\n");
         out.push_str("                match sixpack::GetOne::from_outcome(outcome)? {\n");
         out.push_str("                    Some(record) => Ok(Some(Row::from_record(&record)?)),\n");
         out.push_str("                    None => Ok(None),\n");
@@ -437,12 +437,12 @@ pub fn emit_raw_rust(ir: &SchemaIr) -> String {
         out.push_str("                ManyPageSelector { inner: self.inner.limit(limit) }\n");
         out.push_str("            }\n");
         out.push_str("        }\n\n");
-        out.push_str("        impl sixpack::GetRequest for ManySelector {\n");
+        out.push_str("        impl sixpack::runtime::GetRequest for ManySelector {\n");
         out.push_str("            type Output = Vec<Row>;\n\n");
-        out.push_str("            fn into_plan(self) -> Result<sixpack::PlanEnvelope, sixpack::DatabaseError> {\n");
+        out.push_str("            fn into_plan(self) -> Result<sixpack::runtime::PlanEnvelope, sixpack::DatabaseError> {\n");
         out.push_str("                Ok(self.inner.into_plan())\n");
         out.push_str("            }\n\n");
-        out.push_str("            fn from_outcome(outcome: sixpack::PlanOutcome) -> Result<Self::Output, sixpack::DatabaseError> {\n");
+        out.push_str("            fn from_outcome(outcome: sixpack::runtime::PlanOutcome) -> Result<Self::Output, sixpack::DatabaseError> {\n");
         out.push_str("                rows_from_records(sixpack::GetMany::from_outcome(outcome)?).map_err(sixpack::DatabaseError::from)\n");
         out.push_str("            }\n");
         out.push_str("        }\n");
@@ -457,12 +457,12 @@ pub fn emit_raw_rust(ir: &SchemaIr) -> String {
         out.push_str("                self\n");
         out.push_str("            }\n");
         out.push_str("        }\n\n");
-        out.push_str("        impl sixpack::GetRequest for ManyPageSelector {\n");
+        out.push_str("        impl sixpack::runtime::GetRequest for ManyPageSelector {\n");
         out.push_str("            type Output = (Vec<Row>, Option<String>);\n\n");
-        out.push_str("            fn into_plan(self) -> Result<sixpack::PlanEnvelope, sixpack::DatabaseError> {\n");
+        out.push_str("            fn into_plan(self) -> Result<sixpack::runtime::PlanEnvelope, sixpack::DatabaseError> {\n");
         out.push_str("                Ok(self.inner.into_plan())\n");
         out.push_str("            }\n\n");
-        out.push_str("            fn from_outcome(outcome: sixpack::PlanOutcome) -> Result<Self::Output, sixpack::DatabaseError> {\n");
+        out.push_str("            fn from_outcome(outcome: sixpack::runtime::PlanOutcome) -> Result<Self::Output, sixpack::DatabaseError> {\n");
         out.push_str("                let page = sixpack::GetPage::from_outcome(outcome)?;\n");
         out.push_str("                Ok((rows_from_records(page.rows)?, page.next_cursor))\n");
         out.push_str("            }\n");
@@ -482,12 +482,12 @@ pub fn emit_raw_rust(ir: &SchemaIr) -> String {
         out.push_str("                self\n");
         out.push_str("            }\n");
         out.push_str("        }\n\n");
-        out.push_str("        impl sixpack::GetRequest for PageSelector {\n");
+        out.push_str("        impl sixpack::runtime::GetRequest for PageSelector {\n");
         out.push_str("            type Output = (Vec<Row>, Option<String>);\n\n");
-        out.push_str("            fn into_plan(self) -> Result<sixpack::PlanEnvelope, sixpack::DatabaseError> {\n");
+        out.push_str("            fn into_plan(self) -> Result<sixpack::runtime::PlanEnvelope, sixpack::DatabaseError> {\n");
         out.push_str("                Ok(self.inner.into_plan())\n");
         out.push_str("            }\n\n");
-        out.push_str("            fn from_outcome(outcome: sixpack::PlanOutcome) -> Result<Self::Output, sixpack::DatabaseError> {\n");
+        out.push_str("            fn from_outcome(outcome: sixpack::runtime::PlanOutcome) -> Result<Self::Output, sixpack::DatabaseError> {\n");
         out.push_str("                let page = sixpack::GetPage::from_outcome(outcome)?;\n");
         out.push_str("                Ok((rows_from_records(page.rows)?, page.next_cursor))\n");
         out.push_str("            }\n");
@@ -497,12 +497,12 @@ pub fn emit_raw_rust(ir: &SchemaIr) -> String {
         out.push_str("        pub struct CountSelector {\n");
         out.push_str("            inner: sixpack::GetCount,\n");
         out.push_str("        }\n\n");
-        out.push_str("        impl sixpack::GetRequest for CountSelector {\n");
+        out.push_str("        impl sixpack::runtime::GetRequest for CountSelector {\n");
         out.push_str("            type Output = usize;\n\n");
-        out.push_str("            fn into_plan(self) -> Result<sixpack::PlanEnvelope, sixpack::DatabaseError> {\n");
+        out.push_str("            fn into_plan(self) -> Result<sixpack::runtime::PlanEnvelope, sixpack::DatabaseError> {\n");
         out.push_str("                Ok(self.inner.into_plan())\n");
         out.push_str("            }\n\n");
-        out.push_str("            fn from_outcome(outcome: sixpack::PlanOutcome) -> Result<Self::Output, sixpack::DatabaseError> {\n");
+        out.push_str("            fn from_outcome(outcome: sixpack::runtime::PlanOutcome) -> Result<Self::Output, sixpack::DatabaseError> {\n");
         out.push_str("                sixpack::GetCount::from_outcome(outcome)\n");
         out.push_str("            }\n");
         out.push_str("        }\n");
@@ -539,8 +539,10 @@ pub fn emit_raw_rust(ir: &SchemaIr) -> String {
         out.push_str("            }\n\n");
         out.push_str("            pub fn insert(&self, row: Row) -> Result<sixpack::AppendResult, sixpack::DatabaseError> {\n");
         out.push_str("                let record = row.into_record()?;\n");
-        out.push_str("                match self.db.execute_plan(sixpack::PlanEnvelope::new(sixpack::PlanOp::Insert, NAME).with_record_value(record))? {\n");
-        out.push_str("                    sixpack::PlanOutcome::Append(result) => Ok(result),\n");
+        out.push_str("                match self.db.execute_plan(sixpack::runtime::PlanEnvelope::new(sixpack::runtime::PlanOp::Insert, NAME).with_record_value(record))? {\n");
+        out.push_str(
+            "                    sixpack::runtime::PlanOutcome::Append(result) => Ok(result),\n",
+        );
         out.push_str(
             "                    _ => unreachable!(\"insert plans return append results\"),\n",
         );
@@ -548,8 +550,10 @@ pub fn emit_raw_rust(ir: &SchemaIr) -> String {
         out.push_str("            }\n\n");
         out.push_str("            pub fn upsert(&self, row: Row) -> Result<sixpack::AppendResult, sixpack::DatabaseError> {\n");
         out.push_str("                let record = row.into_record()?;\n");
-        out.push_str("                match self.db.execute_plan(sixpack::PlanEnvelope::new(sixpack::PlanOp::Upsert, NAME).with_record_value(record))? {\n");
-        out.push_str("                    sixpack::PlanOutcome::Append(result) => Ok(result),\n");
+        out.push_str("                match self.db.execute_plan(sixpack::runtime::PlanEnvelope::new(sixpack::runtime::PlanOp::Upsert, NAME).with_record_value(record))? {\n");
+        out.push_str(
+            "                    sixpack::runtime::PlanOutcome::Append(result) => Ok(result),\n",
+        );
         out.push_str(
             "                    _ => unreachable!(\"upsert plans return append results\"),\n",
         );
@@ -559,21 +563,25 @@ pub fn emit_raw_rust(ir: &SchemaIr) -> String {
         out.push_str("                self.upsert(row)\n");
         out.push_str("            }\n\n");
         out.push_str("            pub fn patch(&self, target: key::Key, patch: Patch) -> Result<sixpack::AppendResult, sixpack::DatabaseError> {\n");
-        out.push_str("                let mut plan = sixpack::PlanEnvelope::new(sixpack::PlanOp::Patch, NAME).with_lookup(target.lookup);\n");
+        out.push_str("                let mut plan = sixpack::runtime::PlanEnvelope::new(sixpack::runtime::PlanOp::Patch, NAME).with_lookup(target.lookup);\n");
         out.push_str("                plan.key.insert(target.lookup.to_owned(), target.value);\n");
         out.push_str("                plan.value = patch.fields;\n");
         out.push_str("                match self.db.execute_plan(plan)? {\n");
-        out.push_str("                    sixpack::PlanOutcome::Append(result) => Ok(result),\n");
+        out.push_str(
+            "                    sixpack::runtime::PlanOutcome::Append(result) => Ok(result),\n",
+        );
         out.push_str(
             "                    _ => unreachable!(\"patch plans return append results\"),\n",
         );
         out.push_str("                }\n");
         out.push_str("            }\n\n");
         out.push_str("            pub fn remove(&self, target: key::Key) -> Result<sixpack::AppendResult, sixpack::DatabaseError> {\n");
-        out.push_str("                let mut plan = sixpack::PlanEnvelope::new(sixpack::PlanOp::Remove, NAME).with_lookup(target.lookup);\n");
+        out.push_str("                let mut plan = sixpack::runtime::PlanEnvelope::new(sixpack::runtime::PlanOp::Remove, NAME).with_lookup(target.lookup);\n");
         out.push_str("                plan.key.insert(target.lookup.to_owned(), target.value);\n");
         out.push_str("                match self.db.execute_plan(plan)? {\n");
-        out.push_str("                    sixpack::PlanOutcome::Append(result) => Ok(result),\n");
+        out.push_str(
+            "                    sixpack::runtime::PlanOutcome::Append(result) => Ok(result),\n",
+        );
         out.push_str(
             "                    _ => unreachable!(\"remove plans return append results\"),\n",
         );
@@ -591,8 +599,10 @@ pub fn emit_raw_rust(ir: &SchemaIr) -> String {
         out.push_str(
             "            pub fn count(&self) -> Result<usize, sixpack::DatabaseError> {\n",
         );
-        out.push_str("                match self.db.execute_plan(sixpack::PlanEnvelope::new(sixpack::PlanOp::Count, NAME))? {\n");
-        out.push_str("                    sixpack::PlanOutcome::Count(count) => Ok(count),\n");
+        out.push_str("                match self.db.execute_plan(sixpack::runtime::PlanEnvelope::new(sixpack::runtime::PlanOp::Count, NAME))? {\n");
+        out.push_str(
+            "                    sixpack::runtime::PlanOutcome::Count(count) => Ok(count),\n",
+        );
         out.push_str("                    _ => unreachable!(\"count plans return counts\"),\n");
         out.push_str("                }\n");
         out.push_str("            }\n");
@@ -645,11 +655,11 @@ pub fn emit_raw_rust(ir: &SchemaIr) -> String {
         out.push_str("                self\n");
         out.push_str("            }\n\n");
         out.push_str("            pub fn run(self) -> Result<(Vec<Row>, Option<String>), sixpack::DatabaseError> {\n");
-        out.push_str("                let mut plan = sixpack::PlanEnvelope::new(sixpack::PlanOp::Scan, NAME);\n");
+        out.push_str("                let mut plan = sixpack::runtime::PlanEnvelope::new(sixpack::runtime::PlanOp::Scan, NAME);\n");
         out.push_str("                plan.limit = self.limit;\n");
         out.push_str("                plan.cursor = self.cursor;\n");
         out.push_str("                match self.db.execute_plan(plan)? {\n");
-        out.push_str("                    sixpack::PlanOutcome::Rows(page) => Ok((rows_from_records(page.rows)?, page.next_cursor)),\n");
+        out.push_str("                    sixpack::runtime::PlanOutcome::Rows(page) => Ok((rows_from_records(page.rows)?, page.next_cursor)),\n");
         out.push_str("                    _ => unreachable!(\"scan plans return row pages\"),\n");
         out.push_str("                }\n");
         out.push_str("            }\n");
@@ -830,14 +840,14 @@ fn emit_get_method(out: &mut String, field: &FieldIr, is_id: bool) {
         rust_param_type(field)
     ));
     out.push_str(&format!(
-        "                let plan = sixpack::PlanEnvelope::new(sixpack::PlanOp::Get, NAME).with_lookup(\"{}\").with_key(\"{}\", {});\n",
+        "                let plan = sixpack::runtime::PlanEnvelope::new(sixpack::runtime::PlanOp::Get, NAME).with_lookup(\"{}\").with_key(\"{}\", {});\n",
         name,
         name,
         rust_value_expr(field, "value")
     ));
     out.push_str("                match self.db.execute_plan(plan)? {\n");
-    out.push_str("                    sixpack::PlanOutcome::Row(Some(record)) => Ok(Some(Row::from_record(&record)?)),\n");
-    out.push_str("                    sixpack::PlanOutcome::Row(None) => Ok(None),\n");
+    out.push_str("                    sixpack::runtime::PlanOutcome::Row(Some(record)) => Ok(Some(Row::from_record(&record)?)),\n");
+    out.push_str("                    sixpack::runtime::PlanOutcome::Row(None) => Ok(None),\n");
     out.push_str("                    _ => unreachable!(\"get plans return row results\"),\n");
     out.push_str("                }\n");
     out.push_str("            }\n");
@@ -850,13 +860,13 @@ fn emit_find_method(out: &mut String, field: &FieldIr) {
         rust_param_type(field)
     ));
     out.push_str(&format!(
-        "                let plan = sixpack::PlanEnvelope::new(sixpack::PlanOp::Find, NAME).with_lookup(\"{}\").with_key(\"{}\", {}).with_limit(1000);\n",
+        "                let plan = sixpack::runtime::PlanEnvelope::new(sixpack::runtime::PlanOp::Find, NAME).with_lookup(\"{}\").with_key(\"{}\", {}).with_limit(1000);\n",
         field.name,
         field.name,
         rust_value_expr(field, "value")
     ));
     out.push_str("                match self.db.execute_plan(plan)? {\n");
-    out.push_str("                    sixpack::PlanOutcome::Rows(page) => rows_from_records(page.rows).map_err(sixpack::DatabaseError::from),\n");
+    out.push_str("                    sixpack::runtime::PlanOutcome::Rows(page) => rows_from_records(page.rows).map_err(sixpack::DatabaseError::from),\n");
     out.push_str("                    _ => unreachable!(\"find plans return row pages\"),\n");
     out.push_str("                }\n");
     out.push_str("            }\n");
@@ -1233,13 +1243,13 @@ fn is_snake_case(name: &str) -> bool {
     }
     let mut chars = name.chars();
     let first = chars.next().expect("non-empty");
-    if !first.is_ascii_lowercase() && first != '_' {
+    if !first.is_ascii_lowercase() {
         return false;
     }
     !name.contains("__")
         && name
             .chars()
-            .all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+            .all(|ch| ch == '_' || ch.is_ascii_lowercase() || ch.is_ascii_digit())
 }
 
 fn token_pretty(kind: &TokenKind) -> &'static str {

@@ -130,9 +130,11 @@ That file must remain private generated state, not canonical user data.
 
 ## Search Index
 
-`.6x` is reserved for optional full-text search. Exact id lookup, declared
-metadata lookup, and normal reads should use `.6b`. Missing `.6x` files must
-not affect normal reads.
+`.6x` is the stable file boundary for optional generated full-text search
+indexes. Exact id lookup, declared metadata lookup, and normal reads use `.6b`.
+Full-text search is not implemented yet, so current databases normally have no
+`.6x` files. Once implemented, `.6x` remains disposable and rebuildable from
+canonical `.6` data; missing `.6x` files must never affect normal reads.
 
 ## Metadata File
 

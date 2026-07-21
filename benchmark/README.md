@@ -65,3 +65,46 @@ The intended storage comparison is:
 - hot writes should update the runtime map and materialize compact `.6b`
   lazily, not rebuild the database or rewrite the binary snapshot per row.
 - measured loops should not regenerate the database or rebuild `.6b`.
+
+## Cached Reopen vs Plain-Text Rebuild
+
+Run from the repository root:
+
+```sh
+cargo bench -p sixpack-benchmark --bench cache_reopen
+```
+
+This benchmark creates temporary 10,000-row and 100,000-row databases and
+compares three cold-open paths:
+
+- reopening with a current generated `.6b` cache;
+- deleting only `.6b`, then reopening and rebuilding it from `.6`.
+- reopening an indexed SQLite database and running the same whole-table count.
+
+Dataset creation and cache deletion are outside the measured interval. The
+benchmark does not change production cache, locking, revision, or sync
+behavior.
+
+Behavioral SQLite parity is tested separately in `tests/sqlite_parity.rs` for
+id reads, declared lookups, pagination, scans, counts, edits, deletes, cached
+restart, and missing-cache rebuild.
+
+## Agent Workload vs One-File-Per-Conversation JSONL
+
+Run from the repository root:
+
+```sh
+cargo bench -p sixpack-benchmark --bench agent_jsonl
+```
+
+The fixture contains 100 conversations with 100 messages each. It compares:
+
+- reading one 100-message conversation;
+- finding one message by id when its conversation is known;
+- finding streaming messages across every conversation;
+- reopening storage and reading one history;
+- appending and syncing one durable message.
+
+The JSONL append calls `sync_data()` after every line. It still has fewer
+safety guarantees than sixpack: no schema validation, duplicate-id check,
+revision publication, generated index, or automatic interrupted-tail recovery.

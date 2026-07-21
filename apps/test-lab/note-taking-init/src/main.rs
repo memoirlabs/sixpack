@@ -391,7 +391,10 @@ fn print_tree_inner(path: &Path, depth: usize) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
     #[test]
     fn compiler_init_can_evolve_empty_note_database() {
@@ -523,7 +526,11 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("time")
             .as_nanos();
-        path.push(format!("sixpack-note-init-{stamp}"));
+        let counter = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+        path.push(format!(
+            "sixpack-note-init-{}-{stamp}-{counter}",
+            std::process::id()
+        ));
         path
     }
 }

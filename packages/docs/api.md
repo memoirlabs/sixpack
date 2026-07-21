@@ -14,9 +14,10 @@ schema.sixpack
   -> Database::get / write / write_many
 ```
 
-The generated code builds validated internal plans. `PlanEnvelope`, raw
-`Record`, string-based selectors, and `LocalStore` are public for compatibility
-and advanced use, but they expose more opportunities for application mistakes.
+The generated code uses the stable `sixpack::runtime` plumbing namespace.
+Low-level records and storage types are grouped under `sixpack::raw`. Existing
+root exports remain available for v0 compatibility, but normal applications
+should not build plans or storage batches directly.
 
 The `sixpack::schema!` macro emits runtime `TableSchema`/`DatabaseSchema`
 metadata only. Typed rows and selectors come from
@@ -25,11 +26,12 @@ metadata only. Typed rows and selectors come from
 ## Database lifecycle
 
 ```rust
-let db = sixpack::Database::open_local_with_schema(
+let options = sixpack::DatabaseOptions::new(
     root,
     workspace_name,
     generated::database_schema(),
-);
+)?;
+let db = sixpack::Database::open(options);
 db.init()?;
 ```
 
@@ -39,6 +41,10 @@ db.init()?;
   writes recoverable metadata, and is suitable for normal startup.
 - Every process opening a workspace must use the same logical schema.
 - `Database` is cloneable, but independently opened handles are also supported.
+- `DatabaseOptions` validates the workspace name before any filesystem access.
+- `sixpack.toml` is engine-owned recoverable state, not application configuration.
+- Applications may construct `DatabaseOptions` from their own configuration
+  files; sixpack does not require a second database configuration format.
 
 ## Generated table API
 

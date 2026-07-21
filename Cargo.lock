@@ -643,6 +643,7 @@ version = "0.0.1"
 dependencies = [
  "criterion",
  "rusqlite",
+ "serde_json",
  "sixpack",
  "tempfile",
 ]

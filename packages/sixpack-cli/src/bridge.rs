@@ -6,9 +6,9 @@ use std::path::PathBuf;
 
 use serde::Deserialize;
 use serde_json::{Map as JsonMap, Value as JsonValue, json};
+use sixpack::runtime::{PlanEnvelope, PlanError, PlanOp, PlanOutcome};
 use sixpack::{
-    Database, DatabaseError, DatabaseSchema, Operation, PlanEnvelope, PlanError, PlanOp,
-    PlanOutcome, PrimitiveType, Record, Value, WriteChange,
+    Database, DatabaseError, DatabaseSchema, Operation, PrimitiveType, Record, Value, WriteChange,
 };
 use sixpack_schema_compiler::{compile_schema, database_schema_from_ir};
 

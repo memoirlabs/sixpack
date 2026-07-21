@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use crate::TableName;
 use crate::error::{SchemaError, ensure_public_field_name};
 use crate::record::Record;
 use crate::value::PrimitiveType;
@@ -35,6 +36,11 @@ pub struct TableSchema {
 }
 
 impl TableSchema {
+    pub fn try_new(name: impl Into<String>) -> Result<Self, SchemaError> {
+        let name = TableName::new(name)?;
+        Ok(Self::new(name.as_str()))
+    }
+
     pub fn new(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
@@ -175,6 +181,7 @@ impl DatabaseSchema {
     }
 
     pub fn add_table(&mut self, table: TableSchema) -> Result<(), SchemaError> {
+        TableName::new(table.name())?;
         if self.tables.contains_key(table.name()) {
             return Err(SchemaError::DuplicateTable(table.name().to_owned()));
         }
