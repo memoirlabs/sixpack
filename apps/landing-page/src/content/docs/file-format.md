@@ -48,7 +48,7 @@ R<TAB>1<TAB>m1<TAB>hello
 D<TAB>2<TAB>m1
 ```
 
-Text values escape backslash, tab, newline, and carriage return. Table chunks stay flat under `tables/<table>/` and use reverse lowercase base36 names such as `zzz.6`, `zzy.6`, and `zzx.6`.
+Text values escape backslash, tab, newline, and carriage return. This is lossless serialization: tabs are never converted to spaces, and literal text such as `\t` remains distinct from an actual tab. Table chunks stay flat under `tables/<table>/` and use reverse lowercase base36 names such as `zzz.6`, `zzy.6`, and `zzx.6`.
 
 ## `.6b` generated indexes
 
