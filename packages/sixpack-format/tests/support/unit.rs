@@ -55,6 +55,48 @@ fn six_row_round_trip() {
 }
 
 #[test]
+fn six_text_encoding_is_lossless_for_chat_content() {
+    let values = [
+        "",
+        "plain text",
+        "\t",
+        "\n",
+        "\r",
+        "\\",
+        "\\t",
+        "\\n",
+        "\\r",
+        "first\tcolumn\nsecond\rline\\literal\\t",
+        "Unicode stays untouched: 你好, café, 🤖",
+    ];
+
+    for value in values {
+        let encoded = escape_six_value(value);
+        assert!(!encoded.contains('\t'));
+        assert!(!encoded.contains('\n'));
+        assert!(!encoded.contains('\r'));
+        assert_eq!(unescape_six_value(&encoded).unwrap(), value);
+    }
+
+    assert_eq!(
+        escape_six_value("first\tcolumn\nsecond\rline\\literal\\t"),
+        "first\\tcolumn\\nsecond\\rline\\\\literal\\\\t"
+    );
+}
+
+#[test]
+fn six_text_decoder_rejects_malformed_escapes() {
+    assert!(matches!(
+        unescape_six_value("dangling\\"),
+        Err(FormatError::BadSixEscape(_))
+    ));
+    assert!(matches!(
+        unescape_six_value("unknown\\xescape"),
+        Err(FormatError::BadSixEscape(_))
+    ));
+}
+
+#[test]
 fn sixb_binary_round_trip() {
     let cache = SixbCache {
         version: SIXB_BINARY_VERSION,
