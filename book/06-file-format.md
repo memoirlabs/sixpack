@@ -28,6 +28,8 @@ Rules:
 - `D` is a delete tombstone by id.
 - Field values are written in schema field order.
 - Values escape tab, newline, carriage return, and backslash.
+- Escaping is lossless: tabs are never normalized to spaces, and literal escape
+  text such as `\t` remains distinct from an actual tab.
 
 ## `.6b`
 
