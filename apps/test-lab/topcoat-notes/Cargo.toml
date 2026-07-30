@@ -1,0 +1,20 @@
+[package]
+name = "topcoat-notes"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[[bin]]
+name = "topcoat-notes"
+path = "src/main.rs"
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+sixpack.workspace = true
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread"] }
+topcoat = "=0.5.0"
+
+[dev-dependencies]
+tempfile = "3"

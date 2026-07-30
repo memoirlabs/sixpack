@@ -1,0 +1,10 @@
+schema! {
+  notes {
+    id id
+    title text
+    body text
+    updated_at int
+
+    lookup updated_at
+  }
+}

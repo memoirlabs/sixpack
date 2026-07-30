@@ -160,22 +160,30 @@ the build-time compiler above for the typed application API.
 
 ## Open and initialize the database
 
+For a quick local inspection before wiring application startup, the CLI can
+initialize the same schema and generate its projection:
+
+```sh
+sixpack init ./local-data/assistant --schema schema.sixpack
+```
+
+Application code should still call `init()` during startup because it is
+idempotent and validates the schema used by that process.
+
 ```rust
 use sixpack::Database;
 
-let db = Database::open_local_with_schema(
-    "./local-data",
-    "assistant",
+let db = Database::open_path_with_schema(
+    "./local-data/assistant",
     sdk::database_schema(),
-);
+)?;
 db.init()?;
 ```
 
-The first argument is the parent directory. The second is the workspace name,
-so this example stores data under `./local-data/assistant/`. `init()` is safe to
-call during startup: it creates missing layout, validates existing table
-headers, rebuilds generated caches when necessary, and publishes recoverable
-metadata.
+The path is the final database directory, matching `sixpack init`. `init()` is
+safe to call during startup: it creates missing layout, validates existing
+table headers, rebuilds generated caches when necessary, and publishes
+recoverable metadata.
 
 Use the same schema for every process opening a workspace.
 

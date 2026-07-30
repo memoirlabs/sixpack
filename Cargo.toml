@@ -11,6 +11,7 @@ members = [
   "apps/test-lab/note-taking-init",
   "apps/test-lab/note-taking-playground",
   "apps/test-lab/ai-chat-notes",
+  "apps/test-lab/topcoat-notes",
   "benchmark",
 ]
 resolver = "2"

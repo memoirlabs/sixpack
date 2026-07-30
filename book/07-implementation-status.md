@@ -85,13 +85,15 @@ This chapter is the honesty check.
 
 - help
 - version
-- TypeScript schema generation
+- schema-backed database initialization
+- typed Rust and TypeScript schema generation
+- dependency-free HTML projection refresh
 - internal TypeScript SDK bridge
 
 ## Not Implemented
 
 - stable generated API snapshots
-- CLI database maintenance commands
+- advanced CLI database maintenance commands
 - admin UI
 - `db.watch(selector)` live subscriptions
 - plan JSON serde

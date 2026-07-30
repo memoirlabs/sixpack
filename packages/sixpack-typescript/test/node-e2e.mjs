@@ -59,8 +59,7 @@ const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repositoryRoot = resolve(packageRoot, "../..");
 const root = await mkdtemp(resolve(tmpdir(), "sixpack-node-e2e-"));
 const db = new Database({
-  root,
-  workspace: "node",
+  path: resolve(root, "node"),
   schema,
   schemaPath: resolve(repositoryRoot, "packages/sixpack/examples/chat_schema.sixpack"),
   binaryPath: resolve(repositoryRoot, "target/debug/sixpack"),

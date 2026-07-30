@@ -20,18 +20,23 @@ Scope and constraints:
 
 Run:
 
-- Open `index.html` directly in a browser, or serve it from a local static server.
-- Use the `Load` button to ingest a local JSON snapshot file.
-- Use the benchmark controls to generate data and run small local timing checks.
+- Open `index.html` directly for the command map.
+- Run the database-backed examples it lists.
+- Open each generated `projection.html` directly; there is no upload step.
 
 Supporting files:
 
 - `fixtures/` for example payloads and test input data.
 - `experiments/` for active short-lived experiment notes.
+- `packages/sixpack/assets/data-projection.html` is the shared template for
+  no-server, read-only projections. The init, note, and AI-chat test apps embed
+  their current `.6` rows into `projection.html` automatically.
 - `note-taking-init/` for the minimal compiler/init lifecycle example. Keep it
   small and untouched when experimenting with richer database behavior.
 - `note-taking-playground/` for a real sixpack-backed notes UI playground with
   CRUD, polling, write/read timing, disk-size display, and compaction checks.
+- `topcoat-notes/` for the Topcoat-compiled, server-rendered notes starter and
+  its focused Sixpack persistence test.
 - `ai-chat-notes/` for the executable typed-API contract covering chat
   persistence, assistant completion, lookup pagination, note capture, retries,
   independent handles, and cold reopen.

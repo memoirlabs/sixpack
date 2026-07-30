@@ -32,6 +32,81 @@ rebuildable indexes, and a public API centered on `get`, `write`, and
 Building an assistant? Start with the executable
 [AI chat and notes guide](packages/docs/ai-chat-notes.md).
 
+## Quickstart
+
+Install the local CLI:
+
+```sh
+cargo install --path apps/sixpack
+```
+
+For the guided starter experience, run:
+
+```sh
+sixpack create
+```
+
+The CLI shows the sixpack banner, asks which template to use, builds the Rust
+binary, starts the local app, and prints its browser URL. Choose **Notes** for
+the runnable CRUD demo, **Chat app** for a deterministic local echo endpoint
+whose messages are stored live, **Topcoat Notes** for a server-rendered
+Topcoat 0.5 notes page backed by Sixpack, or **Minimal** for a schema, binary,
+and generated data projection.
+
+Create the Topcoat starter directly:
+
+```sh
+sixpack create ./topcoat-sixpack --template topcoat
+```
+
+The generated project is a real Topcoat app: its page and form routes are
+compiled from Rust, and its README uses `topcoat dev` for the framework's
+build, asset, reload, and server workflow.
+
+The repository-development equivalent is:
+
+```sh
+cargo run -p sixpack-app -- create
+```
+
+An npm launcher is not published yet, so `bunx sixpack create` is the intended
+future packaging shape rather than a currently working install command.
+
+For a schema-first database without a starter app, create `schema.sixpack`:
+
+```rust
+schema! {
+  notes {
+    id id
+    title text
+    body text
+    updated_at int
+
+    lookup updated_at
+  }
+}
+```
+
+Initialize the default `./data` database:
+
+```sh
+sixpack init
+```
+
+That command validates the schema, initializes the database, and writes
+`data/projection.html`. The projection opens directly in a browser with no
+server, upload, or frontend dependencies.
+
+Generate typed APIs from the same schema when needed:
+
+```sh
+sixpack generate rust --out generated/schema.rs
+sixpack generate typescript --out generated/schema.ts
+```
+
+See the [command reference](packages/docs/commands.md) for custom paths and
+projection refreshes, or run the [small executable examples](packages/sixpack/examples/README.md).
+
 ## The Shape
 
 sixpack is built around the idea that the database API should look like the
@@ -134,7 +209,8 @@ Implemented today:
 - schema compiler parser, validator, and generated Rust/TypeScript output
 - cached generated schema accessors for compiled APIs
 - typed TypeScript `get`/`write`/`writeMany` API through the Rust engine
-- CLI help/version and TypeScript generation surface
+- CLI initialization, Rust/TypeScript generation, and HTML projection refresh
+- dependency-free read-only `projection.html` generated from canonical rows
 
 Planned or incomplete:
 
@@ -203,7 +279,8 @@ messages.add_field("body", PrimitiveType::Text)?;
 messages.add_lookup("conversation_id", false)?;
 schema.add_table(messages)?;
 
-let db = Database::open_local_with_schema("./data", "chat", schema);
+let db = Database::open_path_with_schema("./data/chat", schema)?;
+db.init()?;
 
 let row = Record::new("messages")
     .with_id("m1")?
@@ -313,7 +390,7 @@ preserving the readable `.6` source and recoverable commit boundary.
 ## Repository Layout
 
 ```txt
-packages/sixpack                 public runtime API
+packages/sixpack                 public runtime API and HTML projection
 packages/sixpack-core            schema, records, values, domain types
 packages/sixpack-format          .6 and .6b encoding boundary
 packages/sixpack-store           local storage engine

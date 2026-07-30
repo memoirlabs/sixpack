@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>sixpack chat app</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #000;
+        --surface: #070707;
+        --surface-2: #0d0d0d;
+        --line: #2a2a2a;
+        --ink: #f5f5f5;
+        --muted: #9c9c9c;
+        --lime: #caff4f;
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+          "Segoe UI", sans-serif;
+      }
+
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-weight: 300;
+      }
+      button, input { font: inherit; font-weight: 300; }
+      main {
+        width: min(1240px, calc(100% - 40px));
+        margin: 0 auto;
+        padding: 38px 0 52px;
+      }
+      h1, h2, p { margin: 0; }
+      header { padding-bottom: 28px; }
+      .eyebrow, .mono {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+      .eyebrow {
+        margin-bottom: 9px;
+        color: var(--lime);
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      h1 {
+        font-size: clamp(42px, 6vw, 72px);
+        font-weight: 700;
+        line-height: 0.95;
+        letter-spacing: -0.045em;
+      }
+      .subtitle {
+        margin-top: 12px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+      .metrics {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        border-top: 1px solid var(--line);
+        border-bottom: 1px solid var(--line);
+      }
+      .metric { padding: 15px 18px 17px 0; }
+      .metric + .metric {
+        border-left: 1px solid var(--line);
+        padding-left: 18px;
+      }
+      .metric strong {
+        display: block;
+        color: var(--lime);
+        font-size: 25px;
+        font-weight: 400;
+        line-height: 1.1;
+      }
+      .metric span {
+        display: block;
+        margin-top: 6px;
+        color: var(--muted);
+        font-size: 11px;
+      }
+      .workspace {
+        display: grid;
+        grid-template-columns: minmax(320px, 0.82fr) minmax(0, 1.18fr);
+        gap: 18px;
+        margin-top: 18px;
+      }
+      .panel {
+        overflow: hidden;
+        border: 1px solid var(--line);
+        background: var(--surface);
+      }
+      .panel-head {
+        min-height: 52px;
+        border-bottom: 1px solid var(--line);
+        padding: 13px 15px;
+      }
+      .panel-head h2 { font-size: 16px; font-weight: 500; }
+      .database-panel .panel-head h2 { font-size: 18px; }
+      .chat-panel {
+        display: flex;
+        min-height: 430px;
+        flex-direction: column;
+      }
+      .chat-log {
+        display: flex;
+        min-height: 300px;
+        max-height: 420px;
+        flex: 1;
+        flex-direction: column;
+        gap: 9px;
+        overflow-y: auto;
+        padding: 15px;
+      }
+      .chat-empty {
+        margin: auto;
+        color: var(--muted);
+        font-size: 12px;
+        text-align: center;
+      }
+      .bubble-row { display: flex; }
+      .bubble-row.is-new { animation: bubble-in 180ms ease-out; }
+      .bubble-row.user { justify-content: flex-end; }
+      .bubble {
+        max-width: 82%;
+        border: 1px solid var(--line);
+        background: var(--surface-2);
+        padding: 9px 11px;
+        font-size: 13px;
+        line-height: 1.45;
+      }
+      .bubble-row.user .bubble {
+        border-color: var(--lime);
+        background: var(--lime);
+        color: #101600;
+      }
+      .composer {
+        display: grid;
+        gap: 9px;
+        margin-top: auto;
+        border-top: 1px solid var(--line);
+        padding: 12px;
+      }
+      .input-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 8px;
+      }
+      input {
+        width: 100%;
+        border: 1px solid var(--line);
+        outline: none;
+        background: var(--bg);
+        color: var(--ink);
+        padding: 10px 11px;
+      }
+      input:focus { border-color: #444; }
+      button {
+        min-height: 38px;
+        border: 1px solid var(--lime);
+        background: var(--lime);
+        color: #101600;
+        padding: 7px 14px;
+        cursor: pointer;
+        font-weight: 500;
+      }
+      button:disabled { cursor: wait; opacity: 0.6; }
+      .status {
+        min-height: 16px;
+        color: var(--muted);
+        font-size: 10px;
+      }
+      .database-table { min-height: 430px; }
+      .table-row {
+        display: grid;
+        grid-template-columns: 110px minmax(0, 1fr);
+        min-height: 39px;
+        align-items: center;
+        border-bottom: 1px solid var(--line);
+      }
+      .table-row:last-child { border-bottom: 0; }
+      .table-row > span {
+        min-width: 0;
+        padding: 9px 12px;
+        font-size: 12px;
+      }
+      .table-row > span + span { border-left: 1px solid var(--line); }
+      .table-head {
+        color: var(--muted);
+        font-size: 9px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .table-head > span { font-size: 9px; }
+      .table-role {
+        color: var(--lime);
+        font-size: 10px !important;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+      .table-message {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .table-row.is-new {
+        animation: row-in 280ms cubic-bezier(0.2, 0.8, 0.2, 1);
+      }
+      .table-empty {
+        padding: 36px 15px;
+        color: var(--muted);
+        font-size: 12px;
+        text-align: center;
+      }
+      @keyframes bubble-in {
+        from { opacity: 0; transform: translateY(5px); }
+      }
+      @keyframes row-in {
+        from {
+          opacity: 0;
+          transform: translateX(16px);
+          background: rgb(202 255 79 / 10%);
+        }
+      }
+      @media (max-width: 820px) {
+        main {
+          width: min(100% - 24px, 620px);
+          padding-top: 24px;
+        }
+        .workspace { grid-template-columns: 1fr; }
+      }
+      @media (max-width: 560px) {
+        .metrics { grid-template-columns: repeat(2, 1fr); }
+        .metric:nth-child(3) { border-left: 0; }
+        .metric:nth-child(n + 3) { border-top: 1px solid var(--line); }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <p class="eyebrow">sixpack / chat app</p>
+        <h1>Chat app</h1>
+        <p class="subtitle">Send a message and watch both sides land in the database.</p>
+      </header>
+
+      <section class="metrics" aria-label="database metrics">
+        <div class="metric"><strong id="messageCount">0</strong><span>messages</span></div>
+        <div class="metric"><strong id="revision">0</strong><span>revision</span></div>
+        <div class="metric"><strong id="lastResponse">—</strong><span>response</span></div>
+        <div class="metric"><strong id="lastWrite">—</strong><span>last write</span></div>
+      </section>
+
+      <div class="workspace">
+        <section class="panel chat-panel">
+          <div class="panel-head"><h2>Chat</h2></div>
+          <div class="chat-log" id="chatLog"></div>
+          <form class="composer" id="chatForm">
+            <div class="input-row">
+              <input id="messageInput" aria-label="Message" autocomplete="off" value="ping" />
+              <button id="sendButton" type="submit">Send</button>
+            </div>
+            <p class="status" id="status" role="status"></p>
+          </form>
+        </section>
+
+        <section class="panel database-panel">
+          <div class="panel-head"><h2>Database state</h2></div>
+          <div class="database-table" id="databaseTable"></div>
+        </section>
+      </div>
+    </main>
+
+    <script>
+      const ui = { renderedCount: 0, renderedOnce: false };
+      const els = {
+        chat: document.getElementById("chatLog"),
+        count: document.getElementById("messageCount"),
+        form: document.getElementById("chatForm"),
+        input: document.getElementById("messageInput"),
+        lastResponse: document.getElementById("lastResponse"),
+        lastWrite: document.getElementById("lastWrite"),
+        revision: document.getElementById("revision"),
+        send: document.getElementById("sendButton"),
+        state: document.getElementById("databaseTable"),
+        status: document.getElementById("status"),
+      };
+
+      function fmtMicroseconds(ms) {
+        if (ms == null) return "—";
+        return `${Math.floor(ms * 1000)} μs`;
+      }
+
+      function escapeHtml(value) {
+        return String(value).replace(/[&<>"']/g, (character) => ({
+          "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+        })[character]);
+      }
+
+      async function api(path, options = {}) {
+        const started = performance.now();
+        const response = await fetch(path, {
+          headers: { "content-type": "application/json" },
+          ...options,
+        });
+        const json = await response.json();
+        if (!response.ok) throw new Error(json.error || response.statusText);
+        json.client_ms = performance.now() - started;
+        return json;
+      }
+
+      function bubble(role, body, isNew = false) {
+        return `
+          <div class="bubble-row ${role === "user" ? "user" : "assistant"}${isNew ? " is-new" : ""}">
+            <div class="bubble">${escapeHtml(body)}</div>
+          </div>
+        `;
+      }
+
+      function render(messages) {
+        els.chat.innerHTML = messages.length
+          ? messages.map((message, index) =>
+              bubble(message.role, message.body, ui.renderedOnce && index >= ui.renderedCount)
+            ).join("")
+          : '<p class="chat-empty">Send ping to start the chat.</p>';
+        els.chat.scrollTop = els.chat.scrollHeight;
+
+        const rows = messages.map((message, index) => {
+          const isNew = ui.renderedOnce && index >= ui.renderedCount ? " is-new" : "";
+          return `
+            <div class="table-row${isNew}">
+              <span class="table-role mono">${escapeHtml(message.role)}</span>
+              <span class="table-message">${escapeHtml(message.body)}</span>
+            </div>
+          `;
+        }).join("");
+        els.state.innerHTML = messages.length
+          ? `
+              <div class="table-row table-head">
+                <span>role</span>
+                <span>message</span>
+              </div>
+              ${rows}
+            `
+          : '<p class="table-empty">No message rows yet.</p>';
+        ui.renderedCount = messages.length;
+        ui.renderedOnce = true;
+      }
+
+      async function refresh() {
+        const state = await api("/api/state");
+        els.count.textContent = state.messages.length;
+        els.revision.textContent = state.revision;
+        els.lastWrite.textContent = fmtMicroseconds(state.timings.write_ms);
+        render(state.messages);
+      }
+
+      function showOptimisticMessage(message) {
+        if (els.chat.querySelector(".chat-empty")) els.chat.innerHTML = "";
+        els.chat.insertAdjacentHTML("beforeend", bubble("user", message, true));
+        els.chat.scrollTop = els.chat.scrollHeight;
+      }
+
+      els.form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const message = els.input.value.trim();
+        if (!message) return;
+
+        els.send.disabled = true;
+        els.input.value = "";
+        els.status.textContent = "Sending…";
+        showOptimisticMessage(message);
+        try {
+          const result = await api("/api/ai/ping", {
+            method: "POST",
+            body: JSON.stringify({ message }),
+          });
+          els.lastResponse.textContent = fmtMicroseconds(result.client_ms);
+          await refresh();
+          els.status.textContent = "2 rows stored";
+        } catch (error) {
+          els.status.textContent = error.message;
+          await refresh().catch(() => {});
+        } finally {
+          els.send.disabled = false;
+          els.input.value = "ping";
+          els.input.select();
+        }
+      });
+
+      refresh().catch((error) => {
+        els.status.textContent = error.message;
+      });
+      setInterval(() => refresh().catch(() => {}), 500);
+    </script>
+  </body>
+</html>

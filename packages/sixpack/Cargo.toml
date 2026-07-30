@@ -13,6 +13,7 @@ default = []
 experimental-compaction = ["sixpack-store/experimental-compaction"]
 
 [dependencies]
+serde_json.workspace = true
 sixpack-core.workspace = true
 sixpack-format.workspace = true
 sixpack-store.workspace = true

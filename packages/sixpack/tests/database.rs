@@ -29,7 +29,7 @@ fn record_id(record: &Record) -> Result<String, DatabaseError> {
 }
 
 #[test]
-fn validated_options_are_the_standard_opening_surface() {
+fn validated_options_reject_unsafe_workspace_names() {
     let root = temp_root();
     assert!(DatabaseOptions::new(&root, "../escape", schema()).is_err());
 
@@ -37,6 +37,23 @@ fn validated_options_are_the_standard_opening_surface() {
     let db = Database::open(options);
     db.init().unwrap();
     assert!(root.join("chat/sixpack.toml").is_file());
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn final_database_path_is_the_ergonomic_opening_surface() {
+    let root = temp_root();
+    let path = root.join("custom-workspace");
+    let db = Database::open_path_with_schema(&path, schema()).unwrap();
+
+    assert_eq!(db.path(), path);
+    assert_eq!(db.store_root(), root);
+    assert_eq!(db.workspace().name(), "custom-workspace");
+
+    db.init().unwrap();
+    let projection = db.write_projection().unwrap();
+    assert_eq!(projection.path, path.join("projection.html"));
+    assert!(path.join("sixpack.toml").is_file());
     let _ = fs::remove_dir_all(root);
 }
 

@@ -1,42 +1,73 @@
 ---
 title: CLI commands
-description: The intentionally small command surface available in v0.0.1.
+description: Create a Rust starter, initialize local data, and generate typed APIs.
 order: 6
 ---
 
-The command line remains narrow while the storage engine and generated API settle. Only stable behavior that exists in the binary is documented as implemented.
+The command line covers the complete local setup loop.
 
-## Help
+## Quickstart
+
+Create a runnable Rust starter:
+
+```sh
+sixpack create
+```
+
+The terminal asks for a path and template, builds the generated binary, and
+prints the local browser URL. Use `--template notes`, `--template ai`, or
+`--template topcoat`, or `--template minimal` for non-interactive scripts. Chat
+app is a deterministic local echo endpoint with a live message database.
+Topcoat creates a server-rendered Topcoat 0.5 notes page backed by Sixpack; its
+generated README uses `topcoat dev`. The npm launcher is not published yet;
+`bunx sixpack create` is the intended future packaging shape.
+
+For a schema-first database without a starter app, put `schema.sixpack` in the
+current directory and run:
+
+```sh
+sixpack init
+```
+
+This initializes `./data` and generates `./data/projection.html`.
+
+Use explicit paths when needed:
+
+```sh
+sixpack init ./local-data/assistant --schema ./schemas/assistant.sixpack
+```
+
+## Generate typed APIs
+
+```sh
+sixpack generate rust --out generated/schema.rs
+sixpack generate typescript --out generated/schema.ts
+```
+
+The schema defaults to `./schema.sixpack`. Omit `--out` to write generated
+source to stdout.
+
+## Refresh the projection
+
+```sh
+sixpack project
+sixpack project ./local-data/assistant
+```
+
+The generated HTML is a read-only snapshot of canonical `.6` rows and opens
+directly without a server or upload.
+
+## Help and version
 
 ```sh
 sixpack help
-sixpack --help
-sixpack -h
-```
-
-These forms print the current usage text.
-
-## Version
-
-```sh
+sixpack help create
+sixpack help init
+sixpack help generate
+sixpack help project
 sixpack --version
-sixpack -V
 ```
 
-These forms print the CLI version.
-
-## Generate TypeScript
-
-```sh
-sixpack generate typescript schema.sixpack > sixpack-schema.ts
-```
-
-This generates typed rows, lookup selectors, unique keys, and changes for the
-`@sixpack/db` package. Schema `int` fields are emitted as exact TypeScript
-`bigint` values; `int64(...)` safely converts ordinary numbers and strings.
-
-## Not implemented yet
-
-The binary does not currently initialize a database, inspect storage, rebuild indexes, repair files, or run an interactive shell. Those commands remain planned and should not be used in application instructions until their code and contract tests exist.
-
-Applications use the Rust `sixpack` crate or the typed `@sixpack/db` package for current database behavior. The TypeScript package invokes an internal bridge command; that transport is not intended for direct application use.
+Repair, advanced cache maintenance, and an interactive shell are not
+implemented. `sixpack bridge` is an internal TypeScript SDK transport, not a
+normal application command.

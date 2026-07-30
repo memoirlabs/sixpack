@@ -63,6 +63,7 @@ Composed runtime API:
 - `Database`
 - `get` and `write` request execution
 - plan executor
+- dependency-free HTML projection generation from canonical rows
 - public re-exports
 
 ### `sixpack-schema-compiler`
@@ -78,7 +79,8 @@ It should not be required for runtime schema parsing.
 
 ### `sixpack-cli`
 
-CLI command parsing and execution.
+CLI command parsing and execution for initialization, typed code generation,
+and projection refresh.
 
 Keep it small until the runtime contract is stable.
 

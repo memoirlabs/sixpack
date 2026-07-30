@@ -12,11 +12,10 @@ Build-time schema compilation emits typed rows, patches, selectors, keys, and ch
 include!(concat!(env!("OUT_DIR"), "/sixpack_schema.rs"));
 use sixpack_generated_schema as sdk;
 
-let db = Database::open_local_with_schema(
-    root,
-    "assistant",
+let db = Database::open_path_with_schema(
+    "./local-data/assistant",
     sdk::database_schema(),
-);
+)?;
 db.init()?;
 ```
 

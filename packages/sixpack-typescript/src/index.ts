@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { basename, dirname } from "node:path";
 
 export type FieldKind = "id" | "text" | "int" | "float" | "bool";
 
@@ -133,13 +134,28 @@ export interface SixpackSchema {
   readonly tables: Readonly<Record<string, unknown>>;
 }
 
-export interface DatabaseOptions {
-  readonly root: string;
-  readonly workspace: string;
+interface DatabaseCommonOptions {
   readonly schemaPath: string;
   readonly schema: SixpackSchema;
   readonly binaryPath?: string;
 }
+
+export type DatabaseOptions = DatabaseCommonOptions &
+  (
+    | {
+        /** Final database directory, matching `sixpack init <database>`. */
+        readonly path: string;
+        readonly root?: never;
+        readonly workspace?: never;
+      }
+    | {
+        /** Parent directory used by the lower-level connection form. */
+        readonly root: string;
+        /** Database directory name used by the lower-level connection form. */
+        readonly workspace: string;
+        readonly path?: never;
+      }
+  );
 
 /** Alias matching the configuration terminology used in application code. */
 export type DatabaseConfig = DatabaseOptions;
@@ -160,11 +176,40 @@ export class SixpackError extends Error {
   }
 }
 
+function databaseLocation(path: string): { root: string; workspace: string } {
+  if (path.length === 0) {
+    throw new SixpackError(
+      "invalid_configuration",
+      "database path must end with a workspace directory name",
+    );
+  }
+  const workspace = basename(path);
+  const validWorkspace =
+    workspace !== "." &&
+    workspace !== ".." &&
+    !workspace.startsWith("_") &&
+    /^[A-Za-z0-9_-]+$/.test(workspace);
+  if (!validWorkspace) {
+    throw new SixpackError(
+      "invalid_configuration",
+      `invalid database workspace name: ${workspace || path}`,
+    );
+  }
+  return { root: dirname(path), workspace };
+}
+
 export class Database {
-  readonly #options: DatabaseOptions;
+  readonly #options: DatabaseCommonOptions & {
+    readonly root: string;
+    readonly workspace: string;
+  };
 
   constructor(options: DatabaseOptions) {
-    this.#options = options;
+    const location =
+      "path" in options && options.path !== undefined
+        ? databaseLocation(options.path)
+        : { root: options.root, workspace: options.workspace };
+    this.#options = { ...options, ...location };
   }
 
   async init(): Promise<void> {

@@ -6,15 +6,16 @@ include!(concat!(env!("OUT_DIR"), "/ai_chat_notes_schema.rs"));
 
 use sixpack_generated_schema as sdk;
 
-fn open_database(root: &Path) -> Database {
-    Database::open_local_with_schema(root, "assistant", sdk::database_schema())
+fn open_database(path: &Path) -> Result<Database, DatabaseError> {
+    Database::open_path_with_schema(path, sdk::database_schema())
 }
 
-fn run_demo(root: &Path) -> Result<(), DatabaseError> {
-    let db = open_database(root);
+fn run_demo(database: &Path) -> Result<(), DatabaseError> {
+    let db = open_database(database)?;
     db.init()?;
+    refresh_projection(&db);
 
-    db.write(sdk::conversations::add(sdk::conversations::Row {
+    db.write(sdk::conversations::set(sdk::conversations::Row {
         id: "conversation-0001".to_owned(),
         owner_id: "user-0001".to_owned(),
         title: "Release planning".to_owned(),
@@ -22,8 +23,9 @@ fn run_demo(root: &Path) -> Result<(), DatabaseError> {
         updated_at: 1,
         archived: false,
     }))?;
+    refresh_projection(&db);
 
-    db.write(sdk::messages::add(sdk::messages::Row {
+    db.write(sdk::messages::set(sdk::messages::Row {
         id: "message-0001".to_owned(),
         conversation_id: "conversation-0001".to_owned(),
         role: "user".to_owned(),
@@ -33,8 +35,9 @@ fn run_demo(root: &Path) -> Result<(), DatabaseError> {
         created_at: 2,
         sequence: 1,
     }))?;
+    refresh_projection(&db);
 
-    db.write(sdk::messages::add(sdk::messages::Row {
+    db.write(sdk::messages::set(sdk::messages::Row {
         id: "message-0002".to_owned(),
         conversation_id: "conversation-0001".to_owned(),
         role: "assistant".to_owned(),
@@ -44,14 +47,16 @@ fn run_demo(root: &Path) -> Result<(), DatabaseError> {
         created_at: 3,
         sequence: 2,
     }))?;
+    refresh_projection(&db);
     db.write(sdk::messages::edit(
         sdk::messages::key::id("message-0002"),
         sdk::messages::Patch::new()
             .body("I captured the release checklist.")
             .status("completed"),
     ))?;
+    refresh_projection(&db);
 
-    db.write(sdk::notes::add(sdk::notes::Row {
+    db.write(sdk::notes::set(sdk::notes::Row {
         id: "note-0001".to_owned(),
         owner_id: "user-0001".to_owned(),
         title: "Release checklist".to_owned(),
@@ -61,6 +66,7 @@ fn run_demo(root: &Path) -> Result<(), DatabaseError> {
         created_at: 4,
         updated_at: 4,
     }))?;
+    refresh_projection(&db);
 
     let messages = db.get(sdk::messages::by::conversation_id("conversation-0001"))?;
     let notes = db.get(sdk::notes::by::owner_id("user-0001"))?;
@@ -68,26 +74,61 @@ fn run_demo(root: &Path) -> Result<(), DatabaseError> {
         "stored {} message(s) and {} note(s) under {}",
         messages.len(),
         notes.len(),
-        root.display()
+        database.display()
     );
+    println!("projection {}", database.join("projection.html").display());
     Ok(())
 }
 
-fn output_root() -> PathBuf {
+fn refresh_projection(db: &Database) {
+    if let Err(error) = db.write_projection() {
+        eprintln!("projection refresh failed: {error}");
+    }
+}
+
+fn temporary_database_path() -> PathBuf {
+    std::env::temp_dir()
+        .join(format!("sixpack-ai-chat-notes-{}", std::process::id()))
+        .join("assistant")
+}
+
+fn database_path() -> Result<Option<PathBuf>, Box<dyn std::error::Error>> {
+    let mut database = None;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
-        if arg == "--out"
-            && let Some(path) = args.next()
-        {
-            return PathBuf::from(path);
+        match arg.as_str() {
+            "--database" => {
+                if database.is_some() {
+                    return Err("database path specified more than once".into());
+                }
+                database = Some(PathBuf::from(
+                    args.next().ok_or("--database requires a path")?,
+                ));
+            }
+            "--out" => {
+                if database.is_some() {
+                    return Err("database path specified more than once".into());
+                }
+                let root = PathBuf::from(args.next().ok_or("--out requires a path")?);
+                database = Some(root.join("assistant"));
+            }
+            "-h" | "--help" => {
+                println!("ai-chat-notes [--database <path>]");
+                println!();
+                println!("The database defaults to a new temporary directory.");
+                return Ok(None);
+            }
+            other => return Err(format!("unknown argument `{other}`").into()),
         }
     }
-    std::env::temp_dir().join(format!("sixpack-ai-chat-notes-{}", std::process::id()))
+    Ok(Some(database.unwrap_or_else(temporary_database_path)))
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let root = output_root();
-    run_demo(&root)?;
+    let Some(database) = database_path()? else {
+        return Ok(());
+    };
+    run_demo(&database)?;
     Ok(())
 }
 
@@ -144,9 +185,24 @@ mod tests {
     }
 
     #[test]
+    fn demo_reconnects_to_the_same_database_without_duplicate_rows() {
+        let root = tempfile::tempdir().unwrap();
+        let database = root.path().join("custom-assistant");
+
+        run_demo(&database).unwrap();
+        run_demo(&database).unwrap();
+
+        let db = open_database(&database).unwrap();
+        assert_eq!(db.get(sdk::conversations::count()).unwrap(), 1);
+        assert_eq!(db.get(sdk::messages::count()).unwrap(), 2);
+        assert_eq!(db.get(sdk::notes::count()).unwrap(), 1);
+        assert!(database.join("projection.html").is_file());
+    }
+
+    #[test]
     fn typed_chat_and_notes_flow_survives_reopen_and_paginates() {
         let root = tempfile::tempdir().unwrap();
-        let db = open_database(root.path());
+        let db = open_database(&root.path().join("assistant")).unwrap();
         db.init().unwrap();
         db.write(sdk::conversations::add(conversation("c-0001", "u-0001")))
             .unwrap();
@@ -216,7 +272,7 @@ mod tests {
         .unwrap();
 
         drop(db);
-        let cold = open_database(root.path());
+        let cold = open_database(&root.path().join("assistant")).unwrap();
         let assistant = cold.get(sdk::messages::by::id("m-0002")).unwrap().unwrap();
         assert_eq!(assistant.status, "completed");
         assert_eq!(assistant.body, "Final durable assistant response");
@@ -233,8 +289,9 @@ mod tests {
     #[test]
     fn independent_handles_share_chat_and_note_commits() {
         let root = tempfile::tempdir().unwrap();
-        let first = open_database(root.path());
-        let second = open_database(root.path());
+        let database = root.path().join("assistant");
+        let first = open_database(&database).unwrap();
+        let second = open_database(&database).unwrap();
         first.init().unwrap();
 
         first
@@ -287,7 +344,7 @@ mod tests {
     #[test]
     fn duplicate_message_retry_and_invalid_batch_do_not_duplicate_chat_rows() {
         let root = tempfile::tempdir().unwrap();
-        let db = open_database(root.path());
+        let db = open_database(&root.path().join("assistant")).unwrap();
         db.init().unwrap();
         db.write(sdk::conversations::add(conversation("c-0001", "u-0001")))
             .unwrap();

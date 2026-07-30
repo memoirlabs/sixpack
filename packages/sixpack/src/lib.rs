@@ -1,16 +1,18 @@
 //! Public sixpack database API.
 //!
-//! Applications should normally use `Database`, generated selectors and
-//! changes, and `DatabaseOptions`. Lower-level compatibility types remain
-//! available for v0 callers but are not the recommended interface.
+//! Applications should normally use `Database::open_path_with_schema`,
+//! generated selectors, and generated changes. `DatabaseOptions` remains
+//! available when an application already models root and workspace separately.
 
 mod database;
 mod macros;
 mod options;
+mod projection;
 mod request;
 
 pub use database::*;
 pub use options::DatabaseOptions;
+pub use projection::{DataProjection, write_data_projection};
 pub use request::*;
 
 /// Stable plumbing used by generated Rust APIs.

@@ -1,0 +1,12 @@
+schema! {
+  messages {
+    id id
+    role text
+    body text
+    sequence int
+    created_at int
+
+    lookup sequence
+    lookup role
+  }
+}

@@ -21,7 +21,7 @@ changes instead of mutating a returned object.
 Generate a schema module:
 
 ```sh
-sixpack generate typescript schema.sixpack > sixpack-schema.ts
+sixpack generate typescript schema.sixpack --out sixpack-schema.ts
 ```
 
 Use it from TypeScript:
@@ -31,8 +31,7 @@ import { Database, int64 } from "@sixpack/db";
 import { messages, schema } from "./sixpack-schema.js";
 
 const db = new Database({
-  root: "./data",
-  workspace: "chat",
+  path: "./data/chat",
   schema,
   schemaPath: "./schema.sixpack",
 });

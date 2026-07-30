@@ -64,6 +64,31 @@ impl Database {
         }
     }
 
+    /// Opens a local database from its final directory path.
+    pub fn open_path(path: impl AsRef<Path>) -> Result<Self, DatabaseError> {
+        Self::open_path_with_schema(path, DatabaseSchema::new())
+    }
+
+    /// Opens a schema-bound local database from its final directory path.
+    ///
+    /// This is the shortest application setup and matches the path accepted by
+    /// `sixpack init` and `sixpack project`.
+    pub fn open_path_with_schema(
+        path: impl AsRef<Path>,
+        schema: DatabaseSchema,
+    ) -> Result<Self, DatabaseError> {
+        let path = path.as_ref();
+        let workspace = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| SchemaError::InvalidWorkspaceName(path.display().to_string()))?;
+        let root = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        Ok(Self::open(DatabaseOptions::new(root, workspace, schema)?))
+    }
+
     /// Returns the workspace.
     pub fn workspace(&self) -> &Workspace {
         &self.workspace
@@ -72,6 +97,11 @@ impl Database {
     /// Returns the local store root.
     pub fn store_root(&self) -> &Path {
         self.store.root()
+    }
+
+    /// Returns the final database directory.
+    pub fn path(&self) -> PathBuf {
+        self.store_root().join(self.workspace.name())
     }
 
     /// Returns configured schema.
@@ -88,6 +118,11 @@ impl Database {
     /// Creates the empty database layout for all tables in the current schema.
     pub fn init(&self) -> Result<(), DatabaseError> {
         self.store.init(&self.schema).map_err(DatabaseError::from)
+    }
+
+    /// Refreshes the self-contained, read-only HTML data projection.
+    pub fn write_projection(&self) -> std::io::Result<crate::DataProjection> {
+        crate::write_data_projection(&self.path())
     }
 
     /// Gets the current state for one declarative selector.

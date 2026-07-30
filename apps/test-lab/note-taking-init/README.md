@@ -17,8 +17,11 @@ It demonstrates the conservative lifecycle for a new app:
 
 The crate build script generates the latest Rust SDK from `schema.sixpack`.
 The runtime example also writes generated Rust schema output under
-`target/test-lab/note-taking-init/generated/` for inspection and initializes a
-local database under `target/test-lab/note-taking-init/notes-db/`.
+the selected output directory for inspection and initializes its database
+under `<output>/notes-db/`.
+Initialization also creates `notes-db/projection.html`, including for a blank
+v1 database. The final projection is regenerated after the selected experiment
+phase so it contains the current rows.
 
 By default, the binary prints only the current user-facing schema and database
 paths. Versioned generated files and storage/index files are kept as internal
@@ -27,25 +30,39 @@ details. Pass `--show-internals` when you intentionally want to inspect them.
 Run both phases:
 
 ```sh
-cargo run -p note-taking-init -- --reset
+cargo run -p note-taking-init -- \
+  --out target/test-lab/note-taking-init \
+  --reset
 ```
 
 Show internal details:
 
 ```sh
-cargo run -p note-taking-init -- --reset --show-internals
+cargo run -p note-taking-init -- \
+  --out target/test-lab/note-taking-init \
+  --reset \
+  --show-internals
 ```
 
 Run a small update-speed pass and generate an HTML report:
 
 ```sh
-cargo run -p note-taking-init -- --reset --speed-updates 1000 --show-internals
+cargo run -p note-taking-init -- \
+  --out target/test-lab/note-taking-init \
+  --reset \
+  --speed-updates 1000 \
+  --show-internals
 ```
 
 Run the same pass and compact the notes table afterward:
 
 ```sh
-cargo run -p note-taking-init -- --reset --speed-updates 1000 --compact --show-internals
+cargo run -p note-taking-init -- \
+  --out target/test-lab/note-taking-init \
+  --reset \
+  --speed-updates 1000 \
+  --compact \
+  --show-internals
 ```
 
 The report is written to:
@@ -63,10 +80,13 @@ rewriting live rows into a single compacted chunk.
 Run one phase at a time:
 
 ```sh
-cargo run -p note-taking-init -- --reset --phase v1
-cargo run -p note-taking-init -- --phase v2
-cargo run -p note-taking-init -- --phase v3
+cargo run -p note-taking-init -- --out target/test-lab/note-taking-init --reset --phase v1
+cargo run -p note-taking-init -- --out target/test-lab/note-taking-init --phase v2
+cargo run -p note-taking-init -- --out target/test-lab/note-taking-init --phase v3
 ```
+
+Without `--out`, the experiment uses a new temporary directory. `--reset`
+removes only its managed `notes-db/` and `generated/` directories.
 
 Expected final database shape:
 
@@ -80,6 +100,7 @@ generated/
     schema-v2.rs
     schema-v3.rs
 notes-db/
+  projection.html
   sixpack.toml
   engine/
     notebooks.6b

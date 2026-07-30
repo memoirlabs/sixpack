@@ -16,8 +16,7 @@ const repositoryRoot = resolve(packageRoot, "../..");
 const root = await mkdtemp(resolve(tmpdir(), "sixpack-typescript-e2e-"));
 
 const db = new Database({
-  root,
-  workspace: "chat",
+  path: resolve(root, "chat"),
   schema,
   schemaPath: resolve(repositoryRoot, "packages/sixpack/examples/chat_schema.sixpack"),
   binaryPath: resolve(repositoryRoot, "target/debug/sixpack"),
@@ -50,6 +49,20 @@ if (false) {
 }
 
 try {
+  assert.throws(
+    () =>
+      new Database({
+        path: resolve(root, "invalid workspace"),
+        schema,
+        schemaPath: resolve(
+          repositoryRoot,
+          "packages/sixpack/examples/chat_schema.sixpack",
+        ),
+      }),
+    (error: unknown) =>
+      error instanceof SixpackError && error.code === "invalid_configuration",
+  );
+
   await db.init();
 
   const userWrite = await db.write(

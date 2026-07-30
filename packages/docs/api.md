@@ -228,7 +228,7 @@ canonical data to hide corruption.
 Generate a typed module from the same schema used by Rust:
 
 ```sh
-sixpack generate typescript schema.sixpack > sixpack-schema.ts
+sixpack generate typescript schema.sixpack --out sixpack-schema.ts
 ```
 
 The `@sixpack/db` package exposes asynchronous `db.get(...)`, `db.write(...)`,

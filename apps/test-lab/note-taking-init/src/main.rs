@@ -1,6 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::Instant;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use sixpack::{CompactionResult, Database};
 use sixpack_schema_compiler::{compile_schema, database_schema_from_ir, emit_raw_rust};
@@ -15,20 +15,28 @@ const SCHEMA_V3_SOURCE: &str = include_str!("../schema.sixpack");
 const VIEWER_TEMPLATE: &str = include_str!("../viewer.html");
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let output_root = output_root();
-    let reset = std::env::args().any(|arg| arg == "--reset");
-    let show_internals = std::env::args().any(|arg| arg == "--show-internals");
-    let compact_after_speed = std::env::args().any(|arg| arg == "--compact");
-    let speed_updates = speed_updates_arg()?;
-    let phase = phase_arg();
+    let Some(config) = Config::from_args(std::env::args().skip(1))? else {
+        return Ok(());
+    };
+    let output_root = config.output_root;
+    let reset = config.reset;
+    let show_internals = config.show_internals;
+    let compact_after_speed = config.compact;
+    let speed_updates = config.speed_updates;
+    let phase = config.phase;
     if speed_updates.is_some() && matches!(phase.as_deref(), Some("v1")) {
         return Err(
             "--speed-updates requires the notes table; use phase v2, phase v3, or the full run"
                 .into(),
         );
     }
-    if reset && output_root.exists() {
-        fs::remove_dir_all(&output_root)?;
+    if reset {
+        for managed in ["notes-db", "generated"] {
+            let path = output_root.join(managed);
+            if path.exists() {
+                fs::remove_dir_all(path)?;
+            }
+        }
     }
 
     let active_db = match phase.as_deref() {
@@ -96,6 +104,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
+    if let Some(db) = &active_db {
+        let projection = db.write_projection()?;
+        println!("data projection {}", projection.path.display());
+    }
+
     println!();
     print_current_view(&output_root);
     if show_internals {
@@ -124,8 +137,9 @@ fn init_note_database(
     fs::write(internals_dir.join(generated_file_name), &generated)?;
     fs::write(generated_dir.join("schema.rs"), generated)?;
 
-    let db = Database::open_local_with_schema(output_root, "notes-db", schema);
+    let db = Database::open_path_with_schema(output_root.join("notes-db"), schema)?;
     db.init()?;
+    db.write_projection()?;
     Ok(db)
 }
 
@@ -256,8 +270,8 @@ fn write_speed_report(
     let json = speed_report_json(report);
     fs::write(generated_dir.join("speed-report.json"), &json)?;
     let html = VIEWER_TEMPLATE.replace(
-        "window.__SIXPACK_NOTE_REPORT__ = null;",
-        &format!("window.__SIXPACK_NOTE_REPORT__ = {json};"),
+        "window.__SIXPACK_WRITE_REPORT__ = null;",
+        &format!("window.__SIXPACK_WRITE_REPORT__ = {json};"),
     );
     fs::write(generated_dir.join("report.html"), html)?;
     Ok(())
@@ -280,8 +294,7 @@ fn speed_report_json(report: &SpeedReport) -> String {
             "  \"compaction\": {},\n",
             "  \"layout\": {{\n",
             "    \"canonical_data\": \"tables/<table>/*.6\",\n",
-            "    \"current_engine_state\": \"engine/*.6b\",\n",
-            "    \"target_engine_state\": \"engine/state.6pack\"\n",
+            "    \"generated_indexes\": \"engine/*.6b\"\n",
             "  }}\n",
             "}}\n"
         ),
@@ -323,49 +336,98 @@ fn json_escape(value: &str) -> String {
         match character {
             '"' => escaped.push_str("\\\""),
             '\\' => escaped.push_str("\\\\"),
+            '&' => escaped.push_str("\\u0026"),
+            '<' => escaped.push_str("\\u003c"),
+            '>' => escaped.push_str("\\u003e"),
             '\n' => escaped.push_str("\\n"),
             '\r' => escaped.push_str("\\r"),
             '\t' => escaped.push_str("\\t"),
+            '\u{2028}' => escaped.push_str("\\u2028"),
+            '\u{2029}' => escaped.push_str("\\u2029"),
             other => escaped.push(other),
         }
     }
     escaped
 }
 
-fn output_root() -> PathBuf {
-    let mut args = std::env::args().skip(1);
-    while let Some(arg) = args.next() {
-        if arg == "--out"
-            && let Some(path) = args.next()
-        {
-            return PathBuf::from(path);
-        }
-    }
-    PathBuf::from("target/test-lab/note-taking-init")
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Config {
+    output_root: PathBuf,
+    phase: Option<String>,
+    speed_updates: Option<usize>,
+    reset: bool,
+    show_internals: bool,
+    compact: bool,
 }
 
-fn phase_arg() -> Option<String> {
-    let mut args = std::env::args().skip(1);
-    while let Some(arg) = args.next() {
-        if arg == "--phase" {
-            return args.next();
+impl Config {
+    fn from_args(
+        args: impl IntoIterator<Item = String>,
+    ) -> Result<Option<Self>, Box<dyn std::error::Error>> {
+        let mut output_root = None;
+        let mut phase = None;
+        let mut speed_updates = None;
+        let mut reset = false;
+        let mut show_internals = false;
+        let mut compact = false;
+        let mut args = args.into_iter();
+
+        while let Some(argument) = args.next() {
+            match argument.as_str() {
+                "--out" => {
+                    if output_root.is_some() {
+                        return Err("--out specified more than once".into());
+                    }
+                    output_root = Some(PathBuf::from(args.next().ok_or("--out requires a path")?));
+                }
+                "--phase" => {
+                    if phase.is_some() {
+                        return Err("--phase specified more than once".into());
+                    }
+                    phase = Some(args.next().ok_or("--phase requires v1, v2, or v3")?);
+                }
+                "--speed-updates" => {
+                    if speed_updates.is_some() {
+                        return Err("--speed-updates specified more than once".into());
+                    }
+                    speed_updates = Some(
+                        args.next()
+                            .ok_or("--speed-updates requires an update count")?
+                            .parse::<usize>()?,
+                    );
+                }
+                "--reset" => reset = true,
+                "--show-internals" => show_internals = true,
+                "--compact" => compact = true,
+                "-h" | "--help" => {
+                    println!(
+                        "note-taking-init [--out <path>] [--phase <v1|v2|v3>] [--speed-updates <count>] [--compact] [--show-internals] [--reset]"
+                    );
+                    println!();
+                    println!("The experiment defaults to a new temporary directory.");
+                    return Ok(None);
+                }
+                other => return Err(format!("unknown argument `{other}`").into()),
+            }
         }
+
+        Ok(Some(Self {
+            output_root: output_root.unwrap_or_else(temporary_output_root),
+            phase,
+            speed_updates,
+            reset,
+            show_internals,
+            compact,
+        }))
     }
-    None
 }
 
-fn speed_updates_arg() -> Result<Option<usize>, Box<dyn std::error::Error>> {
-    let mut args = std::env::args().skip(1);
-    while let Some(arg) = args.next() {
-        if arg == "--speed-updates" {
-            let value = args
-                .next()
-                .ok_or("--speed-updates requires an update count")?
-                .parse::<usize>()?;
-            return Ok(Some(value));
-        }
-    }
-    Ok(None)
+fn temporary_output_root() -> PathBuf {
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time")
+        .as_nanos();
+    std::env::temp_dir().join(format!("sixpack-note-init-{}-{stamp}", std::process::id()))
 }
 
 fn print_tree(root: &Path) -> std::io::Result<()> {
@@ -502,7 +564,8 @@ mod tests {
         write_note_rows(&db).unwrap();
         write_tag_rows(&db).unwrap();
 
-        let report = run_update_speed_check(&db, 5).unwrap();
+        let mut report = run_update_speed_check(&db, 5).unwrap();
+        report.final_title = "</script><script>alert('report')</script>".to_owned();
         write_speed_report(&root, &report).unwrap();
 
         assert_eq!(report.updates, 5);
@@ -515,7 +578,14 @@ mod tests {
 
         let json = fs::read_to_string(root.join("generated/speed-report.json")).unwrap();
         assert!(json.contains("\"updates\": 5"));
-        assert!(json.contains("\"current_engine_state\": \"engine/*.6b\""));
+        assert!(json.contains("\"generated_indexes\": \"engine/*.6b\""));
+        assert!(!json.contains("state.6pack"));
+
+        let html = fs::read_to_string(root.join("generated/report.html")).unwrap();
+        assert!(html.contains("window.__SIXPACK_WRITE_REPORT__ = {"));
+        assert!(html.contains("Write speed report."));
+        assert!(!html.contains("</script><script>alert('report')</script>"));
+        assert!(html.contains(r"\u003c/script\u003e\u003cscript\u003e"));
 
         let _ = fs::remove_dir_all(root);
     }

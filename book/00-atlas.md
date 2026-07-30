@@ -10,7 +10,7 @@ same commit as the code and tests.
 packages/sixpack-core            schema, records, values, domain types
 packages/sixpack-format          .6 and .6b encoding boundary
 packages/sixpack-store           local storage engine
-packages/sixpack                 public Database API composition
+packages/sixpack                 public Database API + HTML projection
 packages/sixpack-cli             CLI command behavior
 packages/sixpack-schema-compiler schema! parser, validator, raw Rust output
 packages/sixpack-testkit         shared test helpers
@@ -62,6 +62,7 @@ The implementation today writes one generated `.6b` cache per table.
 
 ```txt
 my-db.sixpack/
+  projection.html
   sixpack.toml
   tables/
     messages/
@@ -78,6 +79,7 @@ Current truth:
 - `.6` files are canonical row operation data.
 - `sixpack.toml` is compact recoverable metadata.
 - `.6b` files are generated and rebuildable.
+- `projection.html` is an optional generated, read-only browser snapshot.
 - table chunk files stay flat under `tables/<table>/`.
 
 ## Target Disk Layout

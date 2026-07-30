@@ -1,0 +1,445 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>sixpack data</title>
+    <style>
+      body {
+        margin: 16px;
+        background: #000;
+        color: #fff;
+        font-family: monospace;
+      }
+
+      select,
+      input,
+      button {
+        background: #000;
+        color: #fff;
+        border: 1px solid #fff;
+        font: inherit;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      th,
+      td {
+        border: 1px solid #fff;
+        padding: 4px;
+        text-align: left;
+      }
+
+      .table-wrap {
+        overflow: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>sixpack data</h1>
+      <p id="database-path">sixpack projection</p>
+      <p id="live-state">live: checking every second</p>
+
+      <p>
+        <select id="table-select" disabled aria-label="table"></select>
+        <input id="filter" type="search" placeholder="search table" disabled />
+        <button id="reload" type="button">reload</button>
+        <label>
+          <input id="auto-reload" type="checkbox" checked />
+          live
+        </label>
+      </p>
+
+      <p aria-label="projection metrics">
+        <span><strong id="row-count">0</strong> rows</span>
+        | <span><strong id="file-count">0</strong> files</span>
+        | <span><strong id="byte-count">0 B</strong></span>
+        | <span>revision <strong id="revision">-</strong></span>
+        | <span>parse <strong id="read-time">-</strong></span>
+        | <span>render <strong id="render-time">-</strong></span>
+      </p>
+
+      <p id="status">No projection embedded.</p>
+
+      <section class="table-wrap">
+        <div id="empty" class="empty">No rows yet.</div>
+        <table id="data-table" hidden>
+          <thead></thead>
+          <tbody></tbody>
+        </table>
+      </section>
+    </main>
+
+    <script>
+      "use strict";
+
+      const MAX_RENDERED_ROWS = 1000;
+      const RELOAD_INTERVAL_MS = 1000;
+      window.__SIXPACK_EMBEDDED__ = null;
+      const embedded = window.__SIXPACK_EMBEDDED__;
+      const state = {
+        tables: new Map(),
+        fileCount: 0,
+        byteCount: 0,
+        revision: null,
+      };
+
+      const elements = {
+        reload: document.getElementById("reload"),
+        autoReload: document.getElementById("auto-reload"),
+        databasePath: document.getElementById("database-path"),
+        liveState: document.getElementById("live-state"),
+        tableSelect: document.getElementById("table-select"),
+        filter: document.getElementById("filter"),
+        rowCount: document.getElementById("row-count"),
+        fileCount: document.getElementById("file-count"),
+        byteCount: document.getElementById("byte-count"),
+        readTime: document.getElementById("read-time"),
+        renderTime: document.getElementById("render-time"),
+        revision: document.getElementById("revision"),
+        status: document.getElementById("status"),
+        empty: document.getElementById("empty"),
+        table: document.getElementById("data-table"),
+        head: document.querySelector("#data-table thead"),
+        body: document.querySelector("#data-table tbody"),
+      };
+
+      function readViewState() {
+        const hash = window.location.hash.slice(1);
+        if (!hash.includes("=")) {
+          return {
+            table: decodeURIComponent(hash),
+            query: "",
+            live: true,
+            searchFocused: false,
+          };
+        }
+        const parameters = new URLSearchParams(hash);
+        return {
+          table: parameters.get("table") ?? "",
+          query: parameters.get("q") ?? "",
+          live: parameters.get("live") !== "0",
+          searchFocused: parameters.get("focus") === "search",
+        };
+      }
+
+      function saveViewState() {
+        const parameters = new URLSearchParams();
+        if (elements.tableSelect.value) {
+          parameters.set("table", elements.tableSelect.value);
+        }
+        if (elements.filter.value) parameters.set("q", elements.filter.value);
+        if (!elements.autoReload.checked) parameters.set("live", "0");
+        if (document.activeElement === elements.filter) {
+          parameters.set("focus", "search");
+        }
+        const hash = parameters.toString();
+        window.history.replaceState(null, "", hash ? `#${hash}` : window.location.pathname);
+      }
+
+      function formatBytes(bytes) {
+        if (bytes < 1024) return `${bytes} B`;
+        if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
+        return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+      }
+
+      function formatMs(milliseconds) {
+        return `${milliseconds.toFixed(2)} ms`;
+      }
+
+      function compareText(left, right) {
+        return left < right ? -1 : left > right ? 1 : 0;
+      }
+
+      function unescapeSixValue(value) {
+        let output = "";
+        for (let index = 0; index < value.length; index += 1) {
+          const character = value[index];
+          if (character !== "\\") {
+            output += character;
+            continue;
+          }
+          index += 1;
+          if (index >= value.length) throw new Error("dangling escape");
+          const escaped = value[index];
+          if (escaped === "\\") output += "\\";
+          else if (escaped === "t") output += "\t";
+          else if (escaped === "n") output += "\n";
+          else if (escaped === "r") output += "\r";
+          else throw new Error(`unknown escape \\${escaped}`);
+        }
+        return output;
+      }
+
+      function parseSixFile(source, path) {
+        const lines = source.split(/\r?\n/);
+        const dataEnd = source.endsWith("\n") ? lines.length : lines.length - 1;
+        const magic = lines[0]?.split("\t") ?? [];
+        if (magic.length !== 5 || magic[0] !== "SIX" || magic[2] !== "table") {
+          throw new Error(`${path}: expected current SIX table preamble`);
+        }
+
+        const tableName = unescapeSixValue(magic[3]);
+        const fields = [];
+        let dataStart = -1;
+        for (let index = 1; index < lines.length; index += 1) {
+          const line = lines[index];
+          if (line === "@data") {
+            dataStart = index + 1;
+            break;
+          }
+          if (line.startsWith("@field\t")) {
+            const parts = line.split("\t");
+            if (parts.length !== 3) throw new Error(`${path}: malformed field`);
+            fields.push({
+              name: unescapeSixValue(parts[1]),
+              type: parts[2],
+            });
+          }
+        }
+        if (dataStart < 0 || fields.length === 0) {
+          throw new Error(`${path}: incomplete table preamble`);
+        }
+
+        const operations = [];
+        for (let index = dataStart; index < dataEnd; index += 1) {
+          const line = lines[index];
+          if (!line) continue;
+          const parts = line.split("\t");
+          const tag = parts[0];
+          const tx = parts[1];
+          if (!/^\d+$/.test(tx)) {
+            throw new Error(`${path}:${index + 1}: invalid transaction id`);
+          }
+          if (tag === "D") {
+            if (parts.length !== 3) {
+              throw new Error(`${path}:${index + 1}: malformed delete`);
+            }
+            operations.push({
+              tag,
+              tx,
+              id: unescapeSixValue(parts[2]),
+            });
+            continue;
+          }
+          if (tag !== "R" || parts.length !== fields.length + 2) {
+            throw new Error(`${path}:${index + 1}: malformed row`);
+          }
+          const row = {};
+          fields.forEach((field, fieldIndex) => {
+            row[field.name] = unescapeSixValue(parts[fieldIndex + 2]);
+          });
+          operations.push({ tag, tx, row });
+        }
+
+        return {
+          tableName,
+          fields,
+          schemaHash: magic[4],
+          operations,
+        };
+      }
+
+      function projectFiles(files) {
+        const tables = new Map();
+        const sorted = [...files].sort((left, right) => {
+          const tableOrder = compareText(left.tableHint, right.tableHint);
+          return tableOrder || compareText(right.path, left.path);
+        });
+
+        for (const file of sorted) {
+          const parsed = parseSixFile(file.source, file.path);
+          let table = tables.get(parsed.tableName);
+          if (!table) {
+            table = {
+              name: parsed.tableName,
+              fields: parsed.fields,
+              schemaHash: parsed.schemaHash,
+              rowsById: new Map(),
+            };
+            tables.set(parsed.tableName, table);
+          } else {
+            const expected = table.fields.map((field) => `${field.name}:${field.type}`).join(",");
+            const actual = parsed.fields.map((field) => `${field.name}:${field.type}`).join(",");
+            if (expected !== actual) {
+              throw new Error(`${file.path}: table schema does not match earlier chunks`);
+            }
+          }
+
+          for (const operation of parsed.operations) {
+            if (operation.tag === "D") {
+              table.rowsById.delete(operation.id);
+            } else {
+              const id = operation.row.id;
+              if (id === undefined) throw new Error(`${file.path}: row is missing id`);
+              table.rowsById.set(id, operation.row);
+            }
+          }
+        }
+
+        for (const table of tables.values()) {
+          table.rows = [...table.rowsById.values()].sort((left, right) =>
+            compareText(left.id, right.id),
+          );
+          delete table.rowsById;
+        }
+        return tables;
+      }
+
+      function loadProjection() {
+        if (!embedded) {
+          elements.status.textContent =
+            "This is the template. Open projection.html generated beside the database.";
+          elements.autoReload.disabled = true;
+          elements.liveState.textContent = "live: template only";
+          return;
+        }
+        const started = performance.now();
+        try {
+          const view = readViewState();
+          const tables = projectFiles(embedded.files);
+          state.tables = tables;
+          state.fileCount = embedded.files.length;
+          state.byteCount = embedded.files.reduce((total, file) => total + file.size, 0);
+          state.revision = embedded.revision;
+          elements.databasePath.textContent = embedded.database;
+          elements.autoReload.checked = view.live;
+          elements.filter.value = view.query;
+          elements.readTime.textContent = formatMs(performance.now() - started);
+          updateControls(view.table);
+          render();
+          elements.liveState.textContent = view.live ? "live: checked now" : "live: off";
+          elements.status.textContent = `${tables.size} table(s) · read-only current state · up to ${MAX_RENDERED_ROWS.toLocaleString()} rows shown per table`;
+          if (view.searchFocused) {
+            elements.filter.focus();
+            elements.filter.setSelectionRange(
+              elements.filter.value.length,
+              elements.filter.value.length,
+            );
+          }
+        } catch (error) {
+          elements.status.textContent = `Could not load projection: ${error.message}`;
+          elements.liveState.textContent = "live: error";
+        }
+      }
+
+      function updateControls(requestedTable) {
+        const previous = elements.tableSelect.value || requestedTable;
+        elements.tableSelect.replaceChildren();
+        for (const tableName of [...state.tables.keys()].sort(compareText)) {
+          const option = document.createElement("option");
+          option.value = tableName;
+          option.textContent = tableName;
+          elements.tableSelect.append(option);
+        }
+        if (state.tables.has(previous)) elements.tableSelect.value = previous;
+        const hasTables = state.tables.size > 0;
+        elements.tableSelect.disabled = !hasTables;
+        elements.filter.disabled = !hasTables;
+        elements.fileCount.textContent = state.fileCount.toLocaleString();
+        elements.byteCount.textContent = formatBytes(state.byteCount);
+        elements.revision.textContent = state.revision ?? "-";
+      }
+
+      function render() {
+        const started = performance.now();
+        const table = state.tables.get(elements.tableSelect.value);
+        elements.head.replaceChildren();
+        elements.body.replaceChildren();
+        if (!table) {
+          elements.table.hidden = true;
+          elements.empty.hidden = false;
+          elements.rowCount.textContent = "0";
+          elements.renderTime.textContent = formatMs(performance.now() - started);
+          return;
+        }
+
+        const query = elements.filter.value.trim().toLowerCase();
+        const matchingRows = query
+          ? table.rows.filter((row) =>
+              table.fields.some((field) =>
+                String(row[field.name] ?? "").toLowerCase().includes(query),
+              ),
+            )
+          : table.rows;
+        const visibleRows = matchingRows.slice(0, MAX_RENDERED_ROWS);
+
+        const headerRow = document.createElement("tr");
+        for (const field of table.fields) {
+          const cell = document.createElement("th");
+          cell.textContent = field.name;
+          cell.title = field.type;
+          headerRow.append(cell);
+        }
+        elements.head.append(headerRow);
+
+        const fragment = document.createDocumentFragment();
+        for (const row of visibleRows) {
+          const tableRow = document.createElement("tr");
+          for (const field of table.fields) {
+            const cell = document.createElement("td");
+            const value = String(row[field.name] ?? "");
+            cell.textContent = value;
+            cell.title = value;
+            tableRow.append(cell);
+          }
+          fragment.append(tableRow);
+        }
+        elements.body.append(fragment);
+        const hasVisibleRows = visibleRows.length > 0;
+        elements.empty.textContent = query ? "No rows match this search." : "No rows yet.";
+        elements.empty.hidden = hasVisibleRows;
+        elements.table.hidden = !hasVisibleRows;
+        elements.rowCount.textContent =
+          matchingRows.length === table.rows.length
+            ? table.rows.length.toLocaleString()
+            : `${matchingRows.length.toLocaleString()} / ${table.rows.length.toLocaleString()}`;
+        elements.renderTime.textContent = formatMs(performance.now() - started);
+      }
+
+      elements.reload.addEventListener("click", () => window.location.reload());
+      elements.tableSelect.addEventListener("change", () => {
+        saveViewState();
+        render();
+      });
+      elements.filter.addEventListener("input", () => {
+        saveViewState();
+        render();
+      });
+      elements.filter.addEventListener("focus", saveViewState);
+      elements.filter.addEventListener("blur", saveViewState);
+      elements.autoReload.addEventListener("change", () => {
+        saveViewState();
+        elements.liveState.textContent = elements.autoReload.checked
+          ? "live: checking every second"
+          : "live: off";
+      });
+      document.addEventListener("keydown", (event) => {
+        if (
+          event.key === "/" &&
+          document.activeElement !== elements.filter &&
+          document.activeElement?.tagName !== "INPUT"
+        ) {
+          event.preventDefault();
+          elements.filter.focus();
+        }
+        if (event.key === "Escape" && document.activeElement === elements.filter) {
+          elements.filter.value = "";
+          saveViewState();
+          render();
+          elements.filter.blur();
+        }
+      });
+      loadProjection();
+      if (embedded) {
+        window.setInterval(() => {
+          if (elements.autoReload.checked) window.location.reload();
+        }, RELOAD_INTERVAL_MS);
+      }
+    </script>
+  </body>
+</html>

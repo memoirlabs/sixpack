@@ -43,7 +43,9 @@ Current code includes:
 - CLI surface currently documents only:
   - `sixpack --version`
   - `sixpack help`
-  - `sixpack generate typescript <schema.sixpack>`
+  - `sixpack init [database] [--schema schema.sixpack]`
+  - `sixpack generate <rust|typescript> [schema.sixpack] [--out FILE]`
+  - `sixpack project [database]`
 - Core behavior includes:
   - minimal schema primitives in `packages/sixpack-core`,
   - legacy JSONL event encoding/decoding helpers in `packages/sixpack-format`,
@@ -99,9 +101,9 @@ conflict with the book chapters, the book wins.
 - Avoid speculative abstractions outside the existing boundary model.
 - Keep crate responsibilities aligned with the boundary list above.
 - CLI is currently a small command surface. Do not imply commands beyond
-  help/version and TypeScript generation until code and tests exist. The
-  `bridge` command is an internal TypeScript SDK transport, not a normal user
-  command surface.
+  help/version, initialization, Rust/TypeScript generation, and HTML projection
+  refresh until code and tests exist. The `bridge` command is an internal
+  TypeScript SDK transport, not a normal user command surface.
 - Keep one interactive behavior path out of scope until it is explicitly needed.
 - If a richer interactive command mode is added later, use terminal primitives via
   a maintained library like Ratatui for that narrow scope.
@@ -112,7 +114,8 @@ conflict with the book chapters, the book wins.
 - `packages/sixpack-core` — domain types.
 - `packages/sixpack-format` — file format behavior.
 - `packages/sixpack-store` — storage engine behavior.
-- `packages/sixpack` — public DB API composition.
+- `packages/sixpack` — public DB API composition and the dependency-free HTML
+  projection generator.
 - `packages/sixpack-cli` — CLI command behavior.
 - `packages/sixpack-testkit` — shared test helpers.
 - `packages/sixpack-schema-compiler` — schema parse/validate/codegen crate.

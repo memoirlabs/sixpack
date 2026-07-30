@@ -2,11 +2,12 @@ use std::path::{Path, PathBuf};
 
 use crate::{DatabaseSchema, SchemaError, WorkspaceName};
 
-/// Validated options for opening a local database.
+/// Validated lower-level options for opening a local database.
 ///
 /// `sixpack.toml` remains recoverable engine metadata. Application configuration
 /// belongs in this value (or in an application-owned configuration file that
-/// constructs it), not in the database directory.
+/// constructs it), not in the database directory. Most applications can use
+/// `Database::open_path_with_schema` with one final database path.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DatabaseOptions {
     root: PathBuf,

@@ -1,0 +1,630 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>sixpack notes</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #000;
+        --surface: #070707;
+        --surface-hover: #0d0d0d;
+        --line: #2a2a2a;
+        --line-strong: #444;
+        --ink: #f5f5f5;
+        --muted: #9c9c9c;
+        --quiet: #686868;
+        --lime: #caff4f;
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+          "Segoe UI", sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-weight: 300;
+      }
+
+      button,
+      input,
+      textarea {
+        font: inherit;
+        font-weight: 300;
+      }
+
+      button {
+        min-height: 36px;
+        border: 1px solid var(--line);
+        border-radius: 0;
+        background: var(--surface);
+        color: var(--ink);
+        padding: 7px 11px;
+        cursor: pointer;
+        transition:
+          background 140ms ease,
+          border-color 140ms ease,
+          color 140ms ease;
+      }
+
+      button:hover {
+        border-color: var(--line-strong);
+        background: var(--surface-hover);
+      }
+
+      button.primary {
+        border-color: var(--lime);
+        background: var(--lime);
+        color: #101600;
+        font-weight: 500;
+      }
+
+      button.primary:hover {
+        border-color: var(--lime);
+        background: var(--lime);
+      }
+
+      main {
+        width: min(1240px, calc(100% - 40px));
+        margin: 0 auto;
+        padding: 38px 0 52px;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+
+      header {
+        display: flex;
+        align-items: end;
+        justify-content: space-between;
+        gap: 24px;
+        padding-bottom: 28px;
+      }
+
+      .eyebrow,
+      .mono {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+
+      .eyebrow {
+        margin-bottom: 9px;
+        color: var(--lime);
+        font-size: 11px;
+        font-weight: 300;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      h1 {
+        font-size: clamp(42px, 6vw, 72px);
+        font-weight: 700;
+        line-height: 0.95;
+        letter-spacing: -0.045em;
+      }
+
+      .subtitle {
+        margin-top: 12px;
+        color: var(--muted);
+        font-size: 14px;
+        font-weight: 300;
+      }
+
+      .header-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .live-control {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .live-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--quiet);
+        transition:
+          background 140ms ease,
+          box-shadow 140ms ease;
+      }
+
+      .live-control.is-live .live-dot,
+      .live-dot.flash {
+        background: var(--lime);
+        box-shadow: 0 0 0 3px rgb(202 255 79 / 10%);
+      }
+
+      .metrics {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        border-top: 1px solid var(--line);
+        border-bottom: 1px solid var(--line);
+      }
+
+      .metric {
+        padding: 15px 18px 17px 0;
+      }
+
+      .metric + .metric {
+        border-left: 1px solid var(--line);
+        padding-left: 18px;
+      }
+
+      .metric strong {
+        display: block;
+        color: var(--lime);
+        font-size: 25px;
+        font-weight: 400;
+        line-height: 1.1;
+        letter-spacing: -0.025em;
+      }
+
+      .metric span {
+        display: block;
+        margin-top: 6px;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 300;
+      }
+
+      .workspace {
+        display: grid;
+        grid-template-columns: minmax(300px, 0.8fr) minmax(0, 1.2fr);
+        gap: 18px;
+        margin-top: 18px;
+      }
+
+      .panel {
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 0;
+        background: var(--surface);
+      }
+
+      .panel-head {
+        display: flex;
+        min-height: 52px;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        border-bottom: 1px solid var(--line);
+        padding: 13px 15px;
+      }
+
+      .panel-head h2 {
+        font-size: 16px;
+        font-weight: 500;
+        letter-spacing: -0.01em;
+      }
+
+      .database-panel .panel-head h2 {
+        font-size: 18px;
+      }
+
+      .panel-body {
+        padding: 15px;
+      }
+
+      form {
+        display: grid;
+        gap: 14px;
+      }
+
+      label {
+        display: grid;
+        gap: 7px;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 300;
+      }
+
+      input,
+      textarea {
+        width: 100%;
+        border: 1px solid var(--line);
+        border-radius: 0;
+        outline: none;
+        background: var(--bg);
+        color: var(--ink);
+        padding: 11px 12px;
+        transition:
+          border-color 140ms ease,
+          background 140ms ease;
+      }
+
+      input:focus,
+      textarea:focus {
+        border-color: var(--line-strong);
+        background: #070707;
+      }
+
+      textarea {
+        min-height: 188px;
+        line-height: 1.55;
+        resize: vertical;
+      }
+
+      .form-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+
+      .status {
+        min-height: 18px;
+        margin-top: 12px;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 300;
+      }
+
+      .rows {
+        min-height: 350px;
+      }
+
+      .empty-state {
+        padding: 36px 14px;
+        color: var(--muted);
+        font-size: 13px;
+        text-align: center;
+      }
+
+      .note {
+        display: grid;
+        gap: 10px;
+        padding: 15px;
+        border-bottom: 1px solid var(--line);
+        transition: background 140ms ease;
+      }
+
+      .note:last-child {
+        border-bottom: 0;
+      }
+
+      .note:hover,
+      .note.is-active {
+        background: var(--surface-hover);
+      }
+
+      .note.is-active {
+        box-shadow: inset 2px 0 0 var(--lime);
+      }
+
+      .note-top {
+        display: flex;
+        align-items: start;
+        justify-content: space-between;
+        gap: 16px;
+      }
+
+      .note h3 {
+        font-size: 13px;
+        font-weight: 400;
+        line-height: 1.3;
+      }
+
+      .note p {
+        max-width: 70ch;
+        color: var(--muted);
+        font-size: 13px;
+        font-weight: 300;
+        line-height: 1.5;
+        white-space: pre-wrap;
+      }
+
+      .note-actions {
+        display: flex;
+        flex: 0 0 auto;
+        gap: 6px;
+      }
+
+      .note-actions button {
+        min-height: 30px;
+        padding: 5px 8px;
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      @media (max-width: 820px) {
+        main {
+          width: min(100% - 24px, 620px);
+          padding-top: 24px;
+        }
+
+        header {
+          align-items: start;
+        }
+
+        .workspace {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 560px) {
+        header {
+          display: grid;
+        }
+
+        .metrics {
+          grid-template-columns: repeat(2, 1fr);
+        }
+
+        .metric:nth-child(3) {
+          border-left: 0;
+        }
+
+        .metric:nth-child(n + 3) {
+          border-top: 1px solid var(--line);
+        }
+
+        .note-top {
+          display: grid;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <p class="eyebrow">sixpack / local database</p>
+          <h1>Notes</h1>
+          <p class="subtitle">Edit a note and see the stored state update beside it.</p>
+        </div>
+        <div class="header-actions">
+          <button id="refreshBtn">Refresh</button>
+          <button class="live-control is-live" id="pollBtn">
+            <span class="live-dot"></span>
+            <span id="pollLabel">Live</span>
+          </button>
+        </div>
+      </header>
+
+      <section class="metrics" aria-label="database metrics">
+        <div class="metric">
+          <strong id="noteCount">0</strong>
+          <span>notes</span>
+        </div>
+        <div class="metric">
+          <strong id="revision">0</strong>
+          <span>revision</span>
+        </div>
+        <div class="metric">
+          <strong id="lastWrite">—</strong>
+          <span>last write</span>
+        </div>
+        <div class="metric">
+          <strong id="lastRefresh">—</strong>
+          <span>last sync</span>
+        </div>
+      </section>
+
+      <div class="workspace">
+        <section class="panel">
+          <div class="panel-head">
+            <h2 id="editorHeading">Note</h2>
+          </div>
+          <div class="panel-body">
+            <form id="noteForm">
+              <label>
+                Title
+                <input id="titleInput" autocomplete="off" placeholder="Untitled note" />
+              </label>
+              <label>
+                Note
+                <textarea id="bodyInput" placeholder="Write something…"></textarea>
+              </label>
+              <div class="form-actions">
+                <button class="primary" id="saveBtn" type="submit">Add note</button>
+              </div>
+            </form>
+            <p class="status" id="status" role="status"></p>
+          </div>
+        </section>
+
+        <section class="panel database-panel">
+          <div class="panel-head">
+            <h2>Database state</h2>
+          </div>
+          <div class="rows" id="notes"></div>
+        </section>
+      </div>
+    </main>
+
+    <script>
+      const state = {
+        activeId: null,
+        poll: true,
+        pollTimer: null,
+        lastRevision: null,
+      };
+
+      const els = {
+        body: document.getElementById("bodyInput"),
+        editorHeading: document.getElementById("editorHeading"),
+        form: document.getElementById("noteForm"),
+        lastRefresh: document.getElementById("lastRefresh"),
+        lastWrite: document.getElementById("lastWrite"),
+        noteCount: document.getElementById("noteCount"),
+        notes: document.getElementById("notes"),
+        poll: document.getElementById("pollBtn"),
+        pollLabel: document.getElementById("pollLabel"),
+        refresh: document.getElementById("refreshBtn"),
+        revision: document.getElementById("revision"),
+        save: document.getElementById("saveBtn"),
+        status: document.getElementById("status"),
+        title: document.getElementById("titleInput"),
+      };
+
+      function fmt(ms) {
+        if (ms == null) return "—";
+        return ms < 1 ? `${(ms * 1000).toFixed(0)} μs` : `${ms.toFixed(2)} ms`;
+      }
+
+      async function api(path, options = {}) {
+        const start = performance.now();
+        const response = await fetch(path, {
+          headers: { "content-type": "application/json" },
+          ...options,
+        });
+        const elapsed = performance.now() - start;
+        const text = await response.text();
+        const json = text ? JSON.parse(text) : {};
+        if (!response.ok) {
+          throw new Error(json.error || response.statusText);
+        }
+        json.client_ms = elapsed;
+        return json;
+      }
+
+      async function refresh(message = null) {
+        const data = await api("/api/state");
+        render(data);
+        els.lastRefresh.textContent = fmt(data.client_ms);
+        if (message) {
+          els.status.textContent = `${message} · ${fmt(data.client_ms)}`;
+        }
+      }
+
+      function render(data) {
+        els.noteCount.textContent = data.notes.length;
+        els.revision.textContent = data.revision;
+
+        if (data.notes.length === 0) {
+          els.notes.innerHTML =
+            '<p class="empty-state">No stored notes yet.</p>';
+        } else {
+          els.notes.innerHTML = data.notes
+            .map((note) => {
+              const id = escapeHtml(note.id);
+              return `
+                <article class="note ${note.id === state.activeId ? "is-active" : ""}">
+                  <div class="note-top">
+                    <div>
+                      <h3>${escapeHtml(note.title || "Untitled note")}</h3>
+                    </div>
+                    <div class="note-actions">
+                      <button data-edit="${id}">Edit</button>
+                      <button data-delete="${id}">Delete</button>
+                    </div>
+                  </div>
+                  <p>${escapeHtml(note.body)}</p>
+                </article>
+              `;
+            })
+            .join("");
+        }
+
+        if (state.lastRevision !== null && data.revision !== state.lastRevision) {
+          const dot = els.poll.querySelector(".live-dot");
+          dot.classList.add("flash");
+          setTimeout(() => dot.classList.remove("flash"), 220);
+        }
+        state.lastRevision = data.revision;
+      }
+
+      function escapeHtml(value) {
+        return String(value).replace(/[&<>"']/g, (char) => ({
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+          "'": "&#39;",
+        })[char]);
+      }
+
+      function resetForm() {
+        state.activeId = null;
+        els.editorHeading.textContent = "Note";
+        els.title.value = "";
+        els.body.value = "";
+        els.save.textContent = "Add note";
+        els.title.focus();
+      }
+
+      function setPolling(enabled) {
+        state.poll = enabled;
+        els.poll.classList.toggle("is-live", enabled);
+        els.pollLabel.textContent = enabled ? "Live" : "Paused";
+        clearInterval(state.pollTimer);
+        if (enabled) {
+          state.pollTimer = setInterval(() => {
+            refresh().catch((error) => {
+              els.status.textContent = error.message;
+            });
+          }, 500);
+        }
+      }
+
+      els.form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const editing = state.activeId !== null;
+        const payload = JSON.stringify({
+          title: els.title.value,
+          body: els.body.value,
+        });
+        const path = state.activeId
+          ? `/api/notes/${encodeURIComponent(state.activeId)}`
+          : "/api/notes";
+        const method = state.activeId ? "PATCH" : "POST";
+        const result = await api(path, { method, body: payload });
+        els.lastWrite.textContent = fmt(result.timings.write_ms);
+        resetForm();
+        await refresh(editing ? "Updated" : "Added");
+      });
+
+      els.notes.addEventListener("click", async (event) => {
+        const edit = event.target.closest("[data-edit]");
+        const remove = event.target.closest("[data-delete]");
+        if (edit) {
+          const id = edit.dataset.edit;
+          const data = await api("/api/state");
+          const note = data.notes.find((row) => row.id === id);
+          if (!note) return;
+          state.activeId = note.id;
+          els.editorHeading.textContent = "Edit note";
+          els.title.value = note.title;
+          els.body.value = note.body;
+          els.save.textContent = "Save edit";
+          render(data);
+          els.title.focus();
+        }
+        if (remove) {
+          const id = remove.dataset.delete;
+          const result = await api(`/api/notes/${encodeURIComponent(id)}`, {
+            method: "DELETE",
+          });
+          els.lastWrite.textContent = fmt(result.timings.write_ms);
+          if (state.activeId === id) resetForm();
+          await refresh("Deleted");
+        }
+      });
+
+      els.refresh.addEventListener("click", () => {
+        refresh("Synced").catch((error) => {
+          els.status.textContent = error.message;
+        });
+      });
+      els.poll.addEventListener("click", () => setPolling(!state.poll));
+
+      refresh("Ready")
+        .then(() => setPolling(true))
+        .catch((error) => {
+          els.status.textContent = error.message;
+        });
+    </script>
+  </body>
+</html>
