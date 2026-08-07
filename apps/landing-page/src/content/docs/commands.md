@@ -14,13 +14,13 @@ Create a runnable Rust starter:
 sixpack create
 ```
 
-The terminal asks for a path and template, builds the generated binary, and
-prints the local browser URL. Use `--template notes`, `--template ai`, or
-`--template topcoat`, or `--template minimal` for non-interactive scripts. Chat
-app is a deterministic local echo endpoint with a live message database.
-Topcoat creates a server-rendered Topcoat 0.5 notes page backed by Sixpack; its
-generated README uses `topcoat dev`. The npm launcher is not published yet;
-`bunx sixpack create` is the intended future packaging shape.
+The terminal asks for a path and presents exactly three examples: Notes, Chat
+app, and Topcoat Notes. Use `--template notes`, `--template ai`, or `--template
+topcoat` for non-interactive scripts. Chat app is a deterministic local echo
+endpoint with a live message database. Topcoat creates a server-rendered
+Topcoat 0.5 notes page backed by Sixpack; its generated README uses `topcoat
+dev`. The npm launcher is not published yet; `bunx sixpack create` is the
+intended future packaging shape.
 
 For a schema-first database without a starter app, put `schema.sixpack` in the
 current directory and run:

@@ -33,6 +33,17 @@ cargo run -p note-taking-playground -- \
   --database target/test-lab/notes-quickstart
 ```
 
+For the official server-rendered Topcoat example:
+
+```sh
+SIXPACK_DATABASE=target/examples/topcoat-notes \
+  cargo run -p topcoat-notes
+```
+
+For Topcoat's normal compiler and live-reload workflow, follow the
+[Topcoat Notes guide](topcoat-notes/README.md). The CLI's `topcoat` starter is
+generated directly from that checked example.
+
 `--database` always names the final database directory, matching
 `sixpack init <database>`. Without it, each example uses a new temporary
 directory.

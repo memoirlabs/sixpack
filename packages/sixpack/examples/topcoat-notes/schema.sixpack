@@ -1,3 +1,4 @@
+// Shared by the official example and generated Topcoat starter.
 schema! {
   notes {
     id id

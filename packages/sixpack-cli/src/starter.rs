@@ -11,42 +11,15 @@ const NOTES_SCHEMA: &str = include_str!("../templates/notes/schema.sixpack");
 const AI_MAIN: &str = include_str!("../templates/ai/src/main.rs");
 const AI_HTML: &str = include_str!("../templates/ai/static/index.html");
 const AI_SCHEMA: &str = include_str!("../templates/ai/schema.sixpack");
-const TOPCOAT_MAIN: &str = include_str!("../templates/topcoat/src/main.rs");
-const TOPCOAT_SCHEMA: &str = include_str!("../templates/topcoat/schema.sixpack");
-const TOPCOAT_CONFIG: &str = include_str!("../templates/topcoat/Topcoat.toml");
-const MINIMAL_SCHEMA: &str = r#"schema! {
-  notes {
-    id id
-    title text
-    body text
-    updated_at int
-
-    lookup updated_at
-  }
-}
-"#;
-const MINIMAL_MAIN: &str = r#"use sixpack::{Database, schema};
-
-include!("../schema.sixpack");
-
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let database = std::env::current_dir()?.join("data");
-    let db = Database::open_path_with_schema(&database, database_schema())?;
-    db.init()?;
-    let projection = db.write_projection()?;
-
-    println!("database {}", database.display());
-    println!("projection {}", projection.path.display());
-    Ok(())
-}
-"#;
+const TOPCOAT_MAIN: &str = include_str!("../../sixpack/examples/topcoat-notes/src/main.rs");
+const TOPCOAT_SCHEMA: &str = include_str!("../../sixpack/examples/topcoat-notes/schema.sixpack");
+const TOPCOAT_CONFIG: &str = include_str!("../../sixpack/examples/topcoat-notes/Topcoat.toml");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Template {
     Notes,
     Ai,
     Topcoat,
-    Minimal,
 }
 
 impl Template {
@@ -55,9 +28,8 @@ impl Template {
             "notes" => Ok(Self::Notes),
             "ai" | "ai-ping" => Ok(Self::Ai),
             "topcoat" | "topcoat-notes" => Ok(Self::Topcoat),
-            "minimal" => Ok(Self::Minimal),
             other => Err(CliError::Usage(format!(
-                "unknown template `{other}`; expected `notes`, `ai`, `topcoat`, or `minimal`"
+                "unknown template `{other}`; expected `notes`, `ai`, or `topcoat`"
             ))),
         }
     }
@@ -126,16 +98,11 @@ pub(crate) fn run(
                 "Topcoat Notes",
                 "Topcoat full-stack page + local sixpack notes",
             )
-            .item(
-                Template::Minimal,
-                "Minimal",
-                "schema + Rust binary + generated projection",
-            )
             .interact()
             .map_err(prompt_error)?,
         None => {
             return Err(CliError::Usage(
-                "choose a template with `--template notes`, `--template ai`, `--template topcoat`, or `--template minimal`".to_owned(),
+                "choose a template with `--template notes`, `--template ai`, or `--template topcoat`".to_owned(),
             ));
         }
     };
@@ -175,47 +142,24 @@ pub(crate) fn run(
         return Ok(());
     }
 
-    match template {
-        Template::Notes | Template::Ai | Template::Topcoat => {
-            let start_spinner = interactive.then(cliclack::spinner);
-            if let Some(spinner) = &start_spinner {
-                spinner.start("Waking up the local database");
-            }
-            let (url, mut child) = start_server(&destination, &package_name, template)?;
-            if let Some(spinner) = &start_spinner {
-                spinner.stop("Local app is ready");
-            }
-            println!("open {url}");
-            if interactive {
-                cliclack::outro(format!("Your local app is ready: {url}")).map_err(prompt_error)?;
-            }
-            println!("press Ctrl-C to stop");
-            let status = child.wait().map_err(command_error)?;
-            if !status.success() {
-                return Err(CliError::Command(
-                    "starter server stopped unexpectedly".to_owned(),
-                ));
-            }
-        }
-        Template::Minimal => {
-            let start_spinner = interactive.then(cliclack::spinner);
-            if let Some(spinner) = &start_spinner {
-                spinner.start("Creating the local database");
-            }
-            run_minimal(&destination, &package_name)?;
-            let projection = destination.join("data/projection.html");
-            if let Some(spinner) = &start_spinner {
-                spinner.stop("Database and projection ready");
-            }
-            println!("open file://{}", projection.display());
-            if interactive {
-                cliclack::outro(format!(
-                    "Your data projection is ready: file://{}",
-                    projection.display()
-                ))
-                .map_err(prompt_error)?;
-            }
-        }
+    let start_spinner = interactive.then(cliclack::spinner);
+    if let Some(spinner) = &start_spinner {
+        spinner.start("Waking up the local database");
+    }
+    let (url, mut child) = start_server(&destination, &package_name, template)?;
+    if let Some(spinner) = &start_spinner {
+        spinner.stop("Local app is ready");
+    }
+    println!("open {url}");
+    if interactive {
+        cliclack::outro(format!("Your local app is ready: {url}")).map_err(prompt_error)?;
+    }
+    println!("press Ctrl-C to stop");
+    let status = child.wait().map_err(command_error)?;
+    if !status.success() {
+        return Err(CliError::Command(
+            "starter server stopped unexpectedly".to_owned(),
+        ));
     }
     Ok(())
 }
@@ -232,7 +176,6 @@ fn scaffold(destination: &Path, package_name: &str, template: Template) -> Resul
         Template::Notes => (NOTES_SCHEMA, NOTES_MAIN),
         Template::Ai => (AI_SCHEMA, AI_MAIN),
         Template::Topcoat => (TOPCOAT_SCHEMA, TOPCOAT_MAIN),
-        Template::Minimal => (MINIMAL_SCHEMA, MINIMAL_MAIN),
     };
     write(destination.join("schema.sixpack"), schema)?;
     write(destination.join("src/main.rs"), main)?;
@@ -254,7 +197,6 @@ fn scaffold(destination: &Path, package_name: &str, template: Template) -> Resul
             Template::Notes => NOTES_HTML,
             Template::Ai => AI_HTML,
             Template::Topcoat => unreachable!(),
-            Template::Minimal => unreachable!(),
         };
         write(destination.join("static/index.html"), html)?;
     }
@@ -270,13 +212,8 @@ fn cargo_toml(package_name: &str, template: Template) -> String {
         Template::Topcoat => {
             "serde = { version = \"1\", features = [\"derive\"] }\ntokio = { version = \"1\", features = [\"macros\", \"net\", \"rt-multi-thread\"] }\ntopcoat = \"=0.5.0\"\n"
         }
-        Template::Minimal => "",
     };
-    let dev = if template != Template::Minimal {
-        "\n[dev-dependencies]\ntempfile = \"3\"\n"
-    } else {
-        ""
-    };
+    let dev = "\n[dev-dependencies]\ntempfile = \"3\"\n";
     format!(
         "[package]\nname = \"{package_name}\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[dependencies]\nsixpack = {sixpack}\n{extra}{dev}\n[workspace]\n"
     )
@@ -292,9 +229,6 @@ fn starter_readme(package_name: &str, template: Template) -> String {
         }
         Template::Topcoat => {
             "Install Topcoat CLI 0.5.0 with `cargo install topcoat-cli --version 0.5.0`, then run `topcoat dev` and open http://127.0.0.1:3000/. The single-page notes app is server-rendered from Topcoat `view!` components and persists form writes to the local Sixpack database under `data/`."
-        }
-        Template::Minimal => {
-            "Run `cargo run`, then open `data/projection.html`. The Rust binary initializes the local database from `schema.sixpack` and refreshes the dependency-free projection."
         }
     };
     let run = if template == Template::Topcoat {
@@ -352,7 +286,6 @@ fn start_server(
         Template::Topcoat => {
             command.env("SIXPACK_DATABASE", "data").env("PORT", "0");
         }
-        Template::Minimal => unreachable!(),
     }
     let mut child = command
         .current_dir(destination)
@@ -374,7 +307,6 @@ fn start_server(
         Template::Notes => "note-taking playground ",
         Template::Ai => "sixpack ai demo ",
         Template::Topcoat => "topcoat sixpack ",
-        Template::Minimal => unreachable!(),
     };
     let url = line
         .strip_prefix(prefix)
@@ -385,19 +317,6 @@ fn start_server(
     }
     drop(lines);
     Ok((url, child))
-}
-
-fn run_minimal(destination: &Path, package_name: &str) -> Result<(), CliError> {
-    let status = Command::new(binary_path(destination, package_name))
-        .current_dir(destination)
-        .stdout(Stdio::null())
-        .status()
-        .map_err(command_error)?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(CliError::Command("starter binary failed".to_owned()))
-    }
 }
 
 fn binary_path(destination: &Path, package_name: &str) -> PathBuf {
@@ -462,7 +381,7 @@ pub(crate) fn print_help() {
     println!("Create a runnable sixpack starter project.");
     println!();
     println!("Usage:");
-    println!("  sixpack create [project] [--template notes|ai|topcoat|minimal] [--no-start]");
+    println!("  sixpack create [project] [--template notes|ai|topcoat] [--no-start]");
     println!();
     println!("Without arguments, the terminal asks for a path and template.");
 }
@@ -519,7 +438,15 @@ mod tests {
     #[test]
     fn scaffold_refuses_to_replace_an_existing_project() {
         let root = tempfile::tempdir().unwrap();
-        let error = scaffold(root.path(), "existing", Template::Minimal).unwrap_err();
+        let error = scaffold(root.path(), "existing", Template::Notes).unwrap_err();
         assert!(error.to_string().contains("refusing to overwrite"));
+    }
+
+    #[test]
+    fn create_exposes_exactly_three_runnable_templates() {
+        assert_eq!(Template::parse("notes").unwrap(), Template::Notes);
+        assert_eq!(Template::parse("ai").unwrap(), Template::Ai);
+        assert_eq!(Template::parse("topcoat").unwrap(), Template::Topcoat);
+        assert!(Template::parse("minimal").is_err());
     }
 }

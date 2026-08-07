@@ -1,3 +1,5 @@
+//! Official Topcoat + Sixpack notes example and CLI starter source.
+
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};

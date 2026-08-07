@@ -46,12 +46,13 @@ For the guided starter experience, run:
 sixpack create
 ```
 
-The CLI shows the sixpack banner, asks which template to use, builds the Rust
-binary, starts the local app, and prints its browser URL. Choose **Notes** for
-the runnable CRUD demo, **Chat app** for a deterministic local echo endpoint
-whose messages are stored live, **Topcoat Notes** for a server-rendered
-Topcoat 0.5 notes page backed by Sixpack, or **Minimal** for a schema, binary,
-and generated data projection.
+The CLI shows the sixpack banner, offers exactly three runnable examples,
+builds the selected Rust binary, starts the local app, and prints its browser
+URL:
+
+- **Notes** — dependency-free CRUD with live database state.
+- **Chat app** — a deterministic local echo flow whose messages are stored live.
+- **Topcoat Notes** — a server-rendered Topcoat 0.5 notes page backed by Sixpack.
 
 Create the Topcoat starter directly:
 
@@ -61,7 +62,8 @@ sixpack create ./topcoat-sixpack --template topcoat
 
 The generated project is a real Topcoat app: its page and form routes are
 compiled from Rust, and its README uses `topcoat dev` for the framework's
-build, asset, reload, and server workflow.
+build, asset, reload, and server workflow. Its canonical checked source is the
+[official Topcoat Notes example](packages/sixpack/examples/topcoat-notes/README.md).
 
 The repository-development equivalent is:
 

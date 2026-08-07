@@ -15,6 +15,7 @@ status pages, and archived reference material for sixpack.
 - [packages/docs/commands.md](commands.md) — CLI contract for initialization, typed generation, and HTML projection.
 - [packages/docs/file-format.md](file-format.md) — `.6`, `.6b`, metadata, and local directory layout.
 - [packages/docs/ai-chat-notes.md](ai-chat-notes.md) — executable application contract for AI conversations, messages, notes, pagination, retries, streaming, and two-process use.
+- [packages/sixpack/examples/topcoat-notes](../sixpack/examples/topcoat-notes/README.md) — official Topcoat-compiled notes example and canonical `topcoat` CLI starter source.
 - [packages/docs/api.md](api.md) — public `v0.0.1` generated/runtime API reference, return types, limits, errors, batching, and concurrency semantics.
 - [tests/contracts/README.md](../../tests/contracts/README.md) — contract test boundary intent.
 - [tests/snapshots/README.md](../../tests/snapshots/README.md) — snapshot testing intent.

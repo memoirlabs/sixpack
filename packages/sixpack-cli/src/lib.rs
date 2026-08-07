@@ -308,7 +308,7 @@ fn print_help() {
     println!();
     println!("Usage:");
     println!("  sixpack init [database] [--schema schema.sixpack]");
-    println!("  sixpack create [project] [--template notes|ai|topcoat|minimal]");
+    println!("  sixpack create [project] [--template notes|ai|topcoat]");
     println!("  sixpack generate <rust|typescript> [schema.sixpack] [--out FILE]");
     println!("  sixpack project [database]");
     println!("  sixpack help [command]");

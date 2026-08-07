@@ -21,19 +21,19 @@ For a guided Rust project:
 sixpack create
 ```
 
-The interactive flow asks for a project path and template, builds the generated
-binary, starts the Notes template when selected, and prints a clickable local
-URL. The non-interactive form is:
+The interactive flow asks for a project path, presents exactly three runnable
+examples, builds the selected binary, starts it, and prints a clickable local
+URL. The non-interactive forms are:
 
 ```sh
 sixpack create ./my-notes --template notes
 sixpack create ./my-ai-demo --template ai
 sixpack create ./topcoat-sixpack --template topcoat
-sixpack create ./my-data --template minimal
 ```
 
-`--no-start` creates and builds the project without launching it. The Notes
-command stays attached like a normal development server; press Ctrl-C to stop.
+`--no-start` creates and builds the project without launching it. Otherwise
+each runnable starter stays attached like a normal development server; press
+Ctrl-C to stop.
 
 The npm launcher is not published yet. `bunx sixpack create` is the intended
 future packaging shape, while installed builds use `sixpack create`.
@@ -94,22 +94,25 @@ sixpack create
 sixpack create ./my-notes --template notes
 sixpack create ./my-ai-demo --template ai
 sixpack create ./topcoat-sixpack --template topcoat
-sixpack create ./my-data --template minimal --no-start
 ```
 
 The Notes template contains the dependency-free HTML/CSS/JavaScript CRUD app,
 its Rust HTTP/API binary, `schema.sixpack`, and a local database that generates
 `data/projection.html`. Chat app contains the same no-framework frontend shape,
 a deterministic local `/api/ai/ping` endpoint, and a message table that stores
-both `user: ping` and `assistant: ping`. Minimal contains the schema, a small Rust
-binary, and the generated projection without a CRUD server.
+both `user: ping` and `assistant: ping`.
 
 Topcoat contains one server-rendered notes page, Topcoat-discovered form
 routes, a `Topcoat.toml` project marker, and a Sixpack-backed notes table. The
 generated manifest pins Topcoat 0.5.0 because the framework is currently
 experimental. Install `topcoat-cli` 0.5.0 and run `topcoat dev` inside the
 project for Topcoat's normal compile and live-reload workflow; `cargo run`
-remains available for a one-off server run.
+remains available for a one-off server run. The CLI copies this template
+directly from the
+[official checked example](../sixpack/examples/topcoat-notes/README.md).
+
+Schema-only setup is handled by `sixpack init`, rather than occupying a fourth
+starter choice.
 
 ## `sixpack generate`
 
