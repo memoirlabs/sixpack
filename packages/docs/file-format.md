@@ -104,6 +104,12 @@ newline -> \n
 carriage return -> \r
 ```
 
+Escaping is lossless serialization, not whitespace normalization. Writers must
+not replace user tabs with spaces. Readers restore the exact original text, and
+a literal two-character `\t` remains distinct from an actual tab because its
+backslash is stored as `\\`. This keeps every committed record on one physical
+line while preserving multiline chat messages and other text byte-for-byte.
+
 ## Generated Cache
 
 `.6b` is a generated cache, not source data. The current implementation uses

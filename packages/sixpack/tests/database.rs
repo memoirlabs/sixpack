@@ -245,7 +245,13 @@ fn chat_storage_uses_shared_table_chunks_and_one_physical_line_per_row() {
     .unwrap();
 
     let rows = [
-        ("m-0001", "c1", "user", "hello\tthere\nnext\\line", 1),
+        (
+            "m-0001",
+            "c1",
+            "user",
+            "hello\tthere\nnext\rline\\literal\\t 🤖",
+            1,
+        ),
         ("m-0002", "c2", "user", "other conversation", 2),
         ("m-0003", "c1", "assistant", "answer one", 3),
         ("m-0004", "c2", "assistant", "answer two", 4),
@@ -303,7 +309,7 @@ fn chat_storage_uses_shared_table_chunks_and_one_physical_line_per_row() {
     assert_eq!(message_rows.len(), 4);
     assert!(message_rows.iter().any(|line| line.contains("\tc1\t")));
     assert!(message_rows.iter().any(|line| line.contains("\tc2\t")));
-    assert!(messages.contains("hello\\tthere\\nnext\\\\line"));
+    assert!(messages.contains("hello\\tthere\\nnext\\rline\\\\literal\\\\t 🤖"));
     assert!(
         message_rows
             .iter()
@@ -328,7 +334,9 @@ fn chat_storage_uses_shared_table_chunks_and_one_physical_line_per_row() {
     let escaped = reopened.get_by_id("messages", "m-0001").unwrap().unwrap();
     assert_eq!(
         escaped.fields().get("body"),
-        Some(&Value::Text("hello\tthere\nnext\\line".to_owned()))
+        Some(&Value::Text(
+            "hello\tthere\nnext\rline\\literal\\t 🤖".to_owned()
+        ))
     );
     let _ = fs::remove_dir_all(root);
 }
